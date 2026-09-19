@@ -25,7 +25,7 @@
 
   let data;
   try {
-    const buf = await fetch("data.bin", { cache: "force-cache" }).then((r) => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); });
+    const buf = await fetch("data.bin", { cache: "no-cache" }).then((r) => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); });
     const raw = b64urlToBytes(key);
     const ck = await crypto.subtle.importKey("raw", raw, "AES-GCM", false, ["decrypt"]);
     const pt = await crypto.subtle.decrypt({ name: "AES-GCM", iv: buf.slice(0, 12) }, ck, buf.slice(12));
