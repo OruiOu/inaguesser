@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>イナゲッサー</title>
+<meta name="description" content="イナズマイレブンのキャラを、所属チーム・ポジション・性別・学年・属性・初登場作品のヒントから当てる推理ゲーム。ルームコードで友達とオンライン対戦。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;700;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ccircle cx='32' cy='32' r='30' fill='%23102a5c'/%3E%3Cpath d='M36 8 18 36h13l-4 20 19-30H33z' fill='%23ffd23f'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<header class="topbar">
+  <button class="brand" id="brand-btn" type="button" aria-label="ホームへ">
+    <svg width="26" height="26" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="#102a5c"/><path d="M36 8 18 36h13l-4 20 19-30H33z" fill="#ffd23f"/></svg>
+    <span>イナゲッサー</span>
+  </button>
+  <div class="topbar-right" id="topbar-status"></div>
+</header>
+
+<main id="app">
+
+  <!-- ===== ホーム ===== -->
+  <section id="screen-home" class="screen">
+    <div class="hero">
+      <div class="hero-kicker">INAZUMA ELEVEN CHARACTER GUESSER</div>
+      <h1>イナズマイレブンのキャラを<br>ヒントから当てよう</h1>
+      <div class="hero-demo" aria-hidden="true">
+        <span class="demo-tile partial">所属チーム</span><span class="demo-tile hit">ポジション</span><span class="demo-tile miss">性別</span><span class="demo-tile miss">学年 ▲</span><span class="demo-tile hit">属性</span><span class="demo-tile miss">初登場 ▼</span>
+      </div>
+      <p class="lead">キャラ名を入力すると、<b>所属チーム・ポジション・性別・学年・属性・初登場作品</b>が正解とどれだけ近いか表示されます。少しずつ絞り込んで正解を当ててください。</p>
+    </div>
+
+    <div class="mode-grid">
+      <button class="mode-card" id="btn-solo" type="button">
+        <span class="mode-icon">🎯</span>
+        <span class="mode-title">ひとりで遊ぶ</span>
+        <span class="mode-desc">ランダムなキャラを10回以内に当てられるか</span>
+      </button>
+      <button class="mode-card accent" id="btn-versus" type="button">
+        <span class="mode-icon">⚔️</span>
+        <span class="mode-title">対戦モード</span>
+        <span class="mode-desc">ルームコードで友達と交互に推理。先に当てた人の勝ち</span>
+      </button>
+    </div>
+
+    <details class="panel" id="settings-panel" open>
+      <summary>出題設定</summary>
+      <div class="panel-body">
+        <div class="field">
+          <div class="field-label">難易度</div>
+          <div class="seg" role="radiogroup" id="difficulty-seg">
+            <label><input type="radio" name="difficulty" value="main" checked><span>メインキャラのみ<small>約150人</small></span></label>
+            <label><input type="radio" name="difficulty" value="all"><span>全キャラ<small>チーム所属の全選手</small></span></label>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label">出題範囲（初登場作品）</div>
+          <div class="check-grid" id="works-checks"></div>
+          <div class="pool-count" id="pool-count"></div>
+        </div>
+      </div>
+    </details>
+
+    <details class="panel">
+      <summary>遊び方・判定ルール</summary>
+      <div class="panel-body rules">
+        <table class="rules-table">
+          <tr><th>所属チーム</th><td><span class="chip hit">🟩</span> 全チームが一致 ／ <span class="chip partial">🟨</span> 1つ以上同じチームがある ／ <span class="chip miss">⬜</span> 共通なし</td></tr>
+          <tr><th>ポジション・性別・属性</th><td><span class="chip hit">🟩</span> 一致 ／ <span class="chip miss">⬜</span> 不一致</td></tr>
+          <tr><th>学年</th><td><span class="chip hit">🟩</span> 一致 ／ <span class="chip miss">▲</span> 正解はもっと上の学年 ／ <span class="chip miss">▼</span> 正解はもっと下の学年</td></tr>
+          <tr><th>初登場作品</th><td><span class="chip hit">🟩</span> 一致 ／ <span class="chip miss">▲</span> 正解はもっと後の作品 ／ <span class="chip miss">▼</span> 正解はもっと前の作品</td></tr>
+        </table>
+        <p class="note"><b>ひとりで遊ぶ：</b>推理できるのは10回まで。10回以内に当てられないと正解が公開されます。</p>
+        <p class="note">学年は原則として初登場時のもの。大人・小学生などは学年の代わりに年代を表示します（「超越」などは矢印なし）。データは公式選手図鑑 Inagle を元にしています。</p>
+        <p class="note"><b>対戦モード：</b>ホストがルームを作ってコードを友達に伝えます。全員同じ正解キャラを、順番に1手ずつ推理。先に当てた人の勝ち。各手番には制限時間があり、規定ターンを過ぎると引き分けです。</p>
+      </div>
+    </details>
+  </section>
+
+  <!-- ===== 対戦ロビー ===== -->
+  <section id="screen-lobby" class="screen" hidden>
+    <h2>対戦モード</h2>
+    <div class="field">
+      <label class="field-label" for="nickname">ニックネーム</label>
+      <input id="nickname" class="text" maxlength="12" placeholder="例：まもる" autocomplete="off">
+    </div>
+
+    <div class="lobby-grid" id="lobby-choice">
+      <div class="card">
+        <h3>ルームを作成</h3>
+        <p class="muted">あなたがホストになります。出題設定はホームの設定が使われます。</p>
+        <div class="field">
+          <div class="field-label">1手の制限時間</div>
+          <select id="turn-seconds" class="text">
+            <option value="30">30秒</option>
+            <option value="60" selected>60秒</option>
+            <option value="90">90秒</option>
+            <option value="0">なし</option>
+          </select>
+        </div>
+        <div class="field">
+          <div class="field-label">最大ターン数（超えると引き分け）</div>
+          <select id="max-turns" class="text">
+            <option value="10">10</option>
+            <option value="12">12</option>
+            <option value="20" selected>20</option>
+            <option value="30">30</option>
+            <option value="0">無制限</option>
+          </select>
+        </div>
+        <button class="btn primary" id="btn-create-room" type="button">ルームを作成</button>
+      </div>
+      <div class="card">
+        <h3>ルームに参加</h3>
+        <p class="muted">ホストから聞いた6桁のコードを入力。</p>
+        <input id="join-code" class="text code-input" inputmode="numeric" pattern="[0-9]*" maxlength="6" placeholder="000000" autocomplete="off">
+        <button class="btn" id="btn-join-room" type="button">参加する</button>
+      </div>
+    </div>
+
+    <div class="card" id="lobby-room" hidden>
+      <div class="room-code-box">
+        <div class="muted">ルームコード</div>
+        <div class="room-code" id="room-code-display">------</div>
+        <button class="btn small" id="btn-copy-code" type="button">コードをコピー</button>
+        <button class="btn small" id="btn-copy-link" type="button">招待リンクをコピー</button>
+      </div>
+      <div class="field">
+        <div class="field-label">参加者</div>
+        <ul class="players" id="lobby-players"></ul>
+      </div>
+      <p class="muted" id="lobby-hint"></p>
+      <div class="row">
+        <button class="btn primary" id="btn-start-versus" type="button" hidden>対戦開始</button>
+        <button class="btn" id="btn-leave-lobby" type="button">退出</button>
+      </div>
+    </div>
+    <p class="status-line" id="lobby-status"></p>
+  </section>
+
+  <!-- ===== ゲーム ===== -->
+  <section id="screen-game" class="screen" hidden>
+    <div class="game-head">
+      <div>
+        <div class="game-mode" id="game-mode-label">ひとりで遊ぶ</div>
+        <div class="game-sub" id="game-sub"></div>
+      </div>
+      <div class="head-right">
+        <div class="remain-pill" id="remain-pill" hidden></div>
+        <div class="turn-box" id="turn-box" hidden>
+          <div class="turn-who" id="turn-who"></div>
+          <div class="turn-timer" id="turn-timer"></div>
+        </div>
+      </div>
+    </div>
+
+    <ul class="players inline" id="game-players" hidden></ul>
+
+    <div class="guess-area" id="guess-area">
+      <div class="guess-input-wrap">
+        <input id="guess-input" class="text" placeholder="キャラ名を入力（ひらがな・ニックネームもOK）" autocomplete="off" autocapitalize="off">
+        <button class="btn primary" id="guess-button" type="button">GUESS</button>
+      </div>
+      <ul class="suggest" id="suggest" hidden></ul>
+    </div>
+
+    <div class="board" id="board-body"></div>
+    <p class="board-empty" id="board-empty">まだ推理していません。上の入力欄からキャラ名を入れてみよう。</p>
+
+    <div class="row game-controls">
+      <button class="btn danger" id="btn-surrender" type="button">降参</button>
+      <button class="btn" id="btn-back-home" type="button">ホームへ</button>
+    </div>
+    <div class="log" id="game-log"></div>
+  </section>
+</main>
+
+<!-- ===== 結果モーダル ===== -->
+<div class="modal-backdrop" id="result-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="result-title">
+    <div class="result-verdict" id="result-verdict"></div>
+    <div class="result-char">
+      <img id="result-img" alt="" width="120" height="120">
+      <div>
+        <div class="result-name" id="result-title"></div>
+        <div class="result-kana" id="result-kana"></div>
+        <dl class="result-attrs" id="result-attrs"></dl>
+      </div>
+    </div>
+    <div class="row">
+      <button class="btn" id="btn-copy-result" type="button">結果をコピー</button>
+      <button class="btn primary" id="btn-again" type="button">もう一度</button>
+      <button class="btn" id="btn-result-home" type="button">ホームへ</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<footer class="foot">
+  非公式ファンゲームです。キャラクターデータは <a href="https://zukan.inazuma.jp/" target="_blank" rel="noopener">イナズマイレブン公式選手図鑑 Inagle</a> を元にしています。©LEVEL-5 Inc.
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
