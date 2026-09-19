@@ -22,7 +22,15 @@
   <div class="topbar-right" id="topbar-status"></div>
 </header>
 
-<main id="app">
+<section id="gate" class="gate" hidden>
+  <div class="gate-card">
+    <div class="gate-icon">🔒</div>
+    <h2>招待リンクが必要です</h2>
+    <p id="gate-msg"></p>
+  </div>
+</section>
+
+<main id="app" hidden>
 
   <!-- ===== ホーム ===== -->
   <section id="screen-home" class="screen">
@@ -46,6 +54,11 @@
         <span class="mode-title">対戦モード</span>
         <span class="mode-desc">ルームコードで友達と交互に推理。先に当てた人の勝ち</span>
       </button>
+    </div>
+
+    <div class="share-row">
+      <button class="btn small" id="btn-copy-app-link" type="button">🔗 友達に共有するリンクをコピー</button>
+      <span class="muted">このゲームはカギ付きリンクからしか開けません</span>
     </div>
 
     <details class="panel" id="settings-panel" open>
@@ -207,7 +220,7 @@
 </footer>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js"></script>
-<script src="data.js"></script>
 <script src="app.js"></script>
+<script src="loader.js"></script>
 </body>
 </html>

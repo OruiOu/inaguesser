@@ -284,3 +284,11 @@ select.text { appearance: auto; }
   .room-code { font-size: 38px; }
   .game-mode { font-size: 17px; }
 }
+
+/* ---------- カギ付きリンクのゲート ---------- */
+.gate { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px 14px; }
+.gate-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 28px 24px; max-width: 420px; text-align: center; box-shadow: var(--shadow-s); }
+.gate-icon { font-size: 40px; margin-bottom: 6px; }
+.gate-card h2 { margin: 0 0 8px; font-size: 20px; font-weight: 900; }
+.gate-card p { margin: 0; color: var(--muted); font-size: 14px; }
+.share-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: -2px 0 14px; }

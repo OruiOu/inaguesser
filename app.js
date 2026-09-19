@@ -2,10 +2,10 @@
    - ひとりで遊ぶ: ローカル完結
    - 対戦モード : PeerJS (WebRTC) でホスト権威型。ホストが正解と進行を管理し、ゲストは推理を送るだけ。
 */
-(() => {
+// loader.js が data.bin を復号したあとに INA_START(data) で起動する
+window.INA_START = (D) => {
   "use strict";
 
-  const D = window.INA_DATA;
   const C = D.chars;
   const $ = (id) => document.getElementById(id);
   const IMG_BASE = "https://dxi4wb638ujep.cloudfront.net/1/";
@@ -310,7 +310,7 @@
   }
   function soloShareText(gaveUp, failed) {
     const head = gaveUp ? `${game.guesses.length}手で降参` : failed ? `${SOLO_MAX}回以内に当てられず` : `${game.guesses.length}手で正解！`;
-    return [`イナゲッサー｜ひとりで遊ぶ`, `${head}（${settings.difficulty === "main" ? "メインキャラ" : "全キャラ"}）`, ...game.guesses.map((g) => rowEmoji(g.r)), location.origin + location.pathname].join("\n");
+    return [`イナゲッサー｜ひとりで遊ぶ`, `${head}（${settings.difficulty === "main" ? "メインキャラ" : "全キャラ"}）`, ...game.guesses.map((g) => rowEmoji(g.r))].join("\n");
   }
 
   // ---------------------------------------------------------------- result
@@ -698,7 +698,7 @@
     }
   }
   function versusShareText(pub, verdict) {
-    return [`イナゲッサー｜対戦モード`, verdict, `正解：${C[pub.answer].n}`, ...pub.guesses.slice().map((g) => `${pub.players[g.p].name}: ${rowEmoji(g.r)}`), location.origin + location.pathname].join("\n");
+    return [`イナゲッサー｜対戦モード`, verdict, `正解：${C[pub.answer].n}`, ...pub.guesses.slice().map((g) => `${pub.players[g.p].name}: ${rowEmoji(g.r)}`)].join("\n");
   }
   function tick() {
     if (vs.isHost) hostTick();
@@ -727,7 +727,8 @@
   $("btn-join-room").addEventListener("click", joinRoom);
   $("join-code").addEventListener("keydown", (e) => { if (e.key === "Enter") joinRoom(); });
   $("btn-copy-code").addEventListener("click", () => copyText(vs.code || ""));
-  $("btn-copy-link").addEventListener("click", () => copyText(`${location.origin}${location.pathname}?room=${vs.code}`));
+  $("btn-copy-link").addEventListener("click", () => copyText(`${location.origin}${location.pathname}?room=${vs.code}#k=${window.INA_KEY}`));
+  $("btn-copy-app-link").addEventListener("click", () => copyText(`${location.origin}${location.pathname}#k=${window.INA_KEY}`));
   $("btn-start-versus").addEventListener("click", hostStart);
   $("btn-leave-lobby").addEventListener("click", () => { leaveVersus(); openLobby(); });
   // 2回押しで確定（ブラウザの confirm ダイアログは環境によって出ないため使わない）
@@ -769,4 +770,4 @@
   buildSettingsUI();
   const roomParam = new URLSearchParams(location.search).get("room");
   if (roomParam && /^\d{6}$/.test(roomParam)) openLobby(roomParam);
-})();
+};
