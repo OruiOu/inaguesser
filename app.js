@@ -98,6 +98,7 @@ window.GAME_START = (D) => {
     foot.appendChild(document.createTextNode(CFG.credit || ""));
     if (CFG.creditLink) { const a = el("a", null, CFG.creditLink.label); a.href = CFG.creditLink.url; a.target = "_blank"; a.rel = "noopener"; foot.append(" ", a, " "); }
     foot.appendChild(document.createTextNode(CFG.creditTail || ""));
+    if (CFG.support && CFG.support.url) { const p = el("p", "support"); const a = el("a", "btn small", CFG.support.label || "開発者を応援する"); a.href = CFG.support.url; a.target = "_blank"; a.rel = "noopener"; p.appendChild(a); if (CFG.support.note) p.appendChild(el("span", "muted", CFG.support.note)); foot.appendChild(p); }
     // 難易度・フィルター
     $("difficulty-field").hidden = !CFG.difficulty;
     if (CFG.difficulty) { $("diff-main-label").textContent = CFG.difficulty.mainLabel; $("diff-main-note").textContent = CFG.difficulty.mainNote || ""; $("diff-all-label").textContent = CFG.difficulty.allLabel; $("diff-all-note").textContent = CFG.difficulty.allNote || ""; }
