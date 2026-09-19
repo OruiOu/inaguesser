@@ -50,7 +50,7 @@
       <button class="mode-card accent" id="btn-versus" type="button">
         <span class="mode-icon">⚔️</span>
         <span class="mode-title">対戦モード</span>
-        <span class="mode-desc">ルームコードで友達と交互に推理。先に当てた人の勝ち</span>
+        <span class="mode-desc">ルームコードで友達と対戦。ランダムなお題を交互に推理する「ランダムモード」と、自分が決めたお題を当ててもらう「お題モード」</span>
       </button>
     </div>
 
@@ -99,6 +99,13 @@
         <h3>ルームを作成</h3>
         <p class="muted">あなたがホストになります。出題設定はホームの設定が使われます。</p>
         <div class="field">
+          <div class="field-label">対戦の種類</div>
+          <div class="seg" role="radiogroup" id="vs-mode-seg">
+            <label><input type="radio" name="vsmode" value="random" checked><span>ランダムモード<small>お題はランダム。全員で交互に推理</small></span></label>
+            <label><input type="radio" name="vsmode" value="topic"><span>お題モード<small>あなたがお題を決めて、相手が当てる</small></span></label>
+          </div>
+        </div>
+        <div class="field">
           <div class="field-label">1手の制限時間</div>
           <select id="turn-seconds" class="text">
             <option value="30">30秒</option>
@@ -137,6 +144,18 @@
       <div class="field">
         <div class="field-label">参加者</div>
         <ul class="players" id="lobby-players"></ul>
+      </div>
+      <div class="field topic-field" id="topic-field" hidden>
+        <div class="field-label">お題（相手には見えません）</div>
+        <div class="topic-picker" id="topic-picker">
+          <input id="topic-input" class="text" placeholder="お題にする名前を入力" autocomplete="off" autocapitalize="off">
+          <ul class="suggest" id="topic-suggest" hidden></ul>
+        </div>
+        <div class="topic-chosen" id="topic-chosen" hidden>
+          <span class="topic-badge">お題</span>
+          <b id="topic-name"></b>
+          <button class="btn small" id="btn-topic-change" type="button">変更</button>
+        </div>
       </div>
       <p class="muted" id="lobby-hint"></p>
       <div class="row">
