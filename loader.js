@@ -2,7 +2,7 @@
    - URL の #k=XXXX がカギ。初回に開いた端末では localStorage に保存する
    - カギが無い／間違っている場合は「無効なリンク」画面だけを表示する */
 (async () => {
-  const KEY_LS = "inaguesser.key";
+  const KEY_LS = (window.GAME_CONFIG && window.GAME_CONFIG.id ? window.GAME_CONFIG.id : "game") + ".key";
   const gate = document.getElementById("gate");
   const gateMsg = document.getElementById("gate-msg");
   const app = document.getElementById("app");
@@ -35,8 +35,8 @@
     return showGate("リンクが正しくありません。招待してくれた人に最新のリンクを確認してください。");
   }
 
-  window.INA_KEY = key;
+  window.GAME_KEY = key;
   gate.hidden = true;
   app.hidden = false;
-  window.INA_START(data);
+  window.GAME_START(data);
 })();

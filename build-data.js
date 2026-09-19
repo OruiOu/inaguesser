@@ -20,4 +20,5 @@ const ct = Buffer.concat([cipher.update(json, "utf8"), cipher.final()]);
 const tag = cipher.getAuthTag(); // WebCrypto は ciphertext||tag の形式
 fs.writeFileSync("data.bin", Buffer.concat([iv, ct, tag]));
 console.log(`data.bin: ${(fs.statSync("data.bin").size / 1024).toFixed(0)} KB`);
-console.log(`共有リンク: https://so-sons.github.io/inaguesser/#k=${key}`);
+const cfg = fs.readFileSync("config.js", "utf8"); const m = cfg.match(/siteUrl:s*"([^"]+)"/);
+console.log(`共有リンク: ${m ? m[1] : "<公開URL>"}#k=${key}`);

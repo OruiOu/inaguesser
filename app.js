@@ -1,29 +1,38 @@
-/* イナゲッサー — メインロジック
+/* 共通エンジン — 題材に依存しない。題材ごとの設定は config.js、データは data.src.js（→ data.bin）。
    - ひとりで遊ぶ: ローカル完結
    - 対戦モード : PeerJS (WebRTC) でホスト権威型。ホストが正解と進行を管理し、ゲストは推理を送るだけ。
-*/
-// loader.js が data.bin を復号したあとに INA_START(data) で起動する
-window.INA_START = (D) => {
+   loader.js が data.bin を復号したあと GAME_START(data) で起動する */
+window.GAME_START = (D) => {
   "use strict";
 
+  const CFG = window.GAME_CONFIG;
   const C = D.chars;
+  const LISTS = D.lists || D;                 // 旧形式（トップレベルに works/short）にも対応
+  const F = CFG.fields;
+  const ATTRS = CFG.attrs;
   const $ = (id) => document.getElementById(id);
-  const IMG_BASE = "https://dxi4wb638ujep.cloudfront.net/1/";
-  const PEER_PREFIX = "inaguesser-";
+  const PEER_PREFIX = CFG.id + "-";
   const PLAYER_COLORS = ["#e0a800", "#1e88e5", "#e53976", "#2e9e4f"];
-  const MAX_PLAYERS = 4;
+  const MAX_PLAYERS = CFG.maxPlayers || 4;
+  const SOLO_MAX = CFG.soloMax || 10;
+  const ITEM = CFG.itemLabel || "キャラ";
+  const UNIT = CFG.unit || "人";
 
   // ---------------------------------------------------------------- utils
   const kanaNorm = (s) =>
-    (s || "")
+    String(s || "")
       .replace(/[ァ-ヶ]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0x60)) // カタカナ→ひらがな
       .replace(/[Ａ-Ｚａ-ｚ０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
       .replace(/[\s・･ｰー\-‐]/g, "")
       .toLowerCase();
+  const nameOf = (c) => c[F.name];
+  const kanaOf = (c) => (F.kana && c[F.kana]) || "";
+  const aliasOf = (c) => (F.alias && c[F.alias]) || "";
+  const isMain = (c) => !!(F.main && c[F.main]);
+  const imgUrl = (c) => (CFG.imageBase && F.image && c[F.image] ? CFG.imageBase + c[F.image] + (CFG.imageExt || "") : "");
 
-  // 検索用インデックス
-  const SEARCH = C.map((c) => ({ n: kanaNorm(c.n), k: kanaNorm(c.k), a: kanaNorm(c.a) }));
-  const NAME_TO_IDX = new Map(C.map((c, i) => [c.n, i]));
+  const SEARCH = C.map((c) => ({ n: kanaNorm(nameOf(c)), k: kanaNorm(kanaOf(c)), a: kanaNorm(aliasOf(c)) }));
+  const NAME_TO_IDX = new Map(C.map((c, i) => [nameOf(c), i]));
 
   const el = (tag, cls, text) => {
     const e = document.createElement(tag);
@@ -31,73 +40,104 @@ window.INA_START = (D) => {
     if (text != null) e.textContent = text;
     return e;
   };
-  const esc = (s) => String(s).replace(/[&<>"']/g, (m) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[m]));
   const pad2 = (n) => String(n).padStart(2, "0");
-  const fmtClock = (ms) => {
-    const s = Math.max(0, Math.ceil(ms / 1000));
-    return `${Math.floor(s / 60)}:${pad2(s % 60)}`;
-  };
+  const fmtClock = (ms) => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${Math.floor(s / 60)}:${pad2(s % 60)}`; };
   const randInt = (n) => Math.floor(Math.random() * n);
 
   let toastTimer = null;
   function toast(msg) {
-    const t = $("toast");
-    t.textContent = msg;
-    t.hidden = false;
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => (t.hidden = true), 1800);
+    const t = $("toast"); t.textContent = msg; t.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => (t.hidden = true), 1800);
   }
   async function copyText(text) {
-    try {
-      await navigator.clipboard.writeText(text);
-      toast("コピーしました");
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = text; document.body.appendChild(ta); ta.select();
+    try { await navigator.clipboard.writeText(text); toast("コピーしました"); }
+    catch {
+      const ta = document.createElement("textarea"); ta.value = text; document.body.appendChild(ta); ta.select();
       try { document.execCommand("copy"); toast("コピーしました"); } catch { toast("コピーできませんでした"); }
       ta.remove();
     }
   }
   function log(msg) {
-    const l = $("game-log");
-    const line = el("div", null, msg);
-    l.prepend(line);
+    const l = $("game-log"); l.prepend(el("div", null, msg));
     while (l.children.length > 30) l.lastChild.remove();
   }
 
+  // ------------------------------------------------------- 題材ごとの文言
+  function applyConfigText() {
+    document.title = CFG.title;
+    $("brand-text").textContent = CFG.title;
+    $("hero-kicker").textContent = CFG.kicker || "";
+    const h1 = $("hero-title"); h1.innerHTML = "";
+    String(CFG.heroTitle || CFG.title).split("\n").forEach((line, i) => { if (i) h1.appendChild(el("br")); h1.appendChild(document.createTextNode(line)); });
+    const demo = $("hero-demo"); demo.innerHTML = "";
+    const demoStates = ["partial", "hit", "miss", "miss", "hit", "miss"];
+    ATTRS.forEach((a, i) => demo.appendChild(el("span", "demo-tile " + (a.type === "set" ? "partial" : demoStates[i % demoStates.length]), a.label + (a.type === "ordinal" ? (i % 2 ? " ▼" : " ▲") : ""))));
+    const lead = $("hero-lead"); lead.innerHTML = "";
+    lead.appendChild(document.createTextNode(`${ITEM}名を入力すると、`));
+    lead.appendChild(el("b", null, ATTRS.map((a) => a.fullLabel || a.label).join("・")));
+    lead.appendChild(document.createTextNode("が正解とどれだけ近いか表示されます。少しずつ絞り込んで正解を当ててください。"));
+    $("mode-solo-desc").textContent = `ランダムな${ITEM}を${SOLO_MAX}回以内に当てられるか`;
+    $("guess-input").placeholder = `${ITEM}名を入力（ひらがな・ニックネームもOK）`;
+    // ルール表
+    const rb = $("rules-body"); rb.innerHTML = "";
+    const chip = (cls, t) => { const s = el("span", "chip " + cls, t); return s; };
+    ATTRS.forEach((a) => {
+      const tr = el("tr"); tr.appendChild(el("th", null, a.fullLabel || a.label));
+      const td = el("td");
+      if (a.type === "set") { td.append(chip("hit", "🟩"), " すべて一致 ／ ", chip("partial", "🟨"), " 1つ以上共通 ／ ", chip("miss", "⬜"), " 共通なし"); }
+      else if (a.type === "ordinal") { td.append(chip("hit", "🟩"), " 一致 ／ ", chip("miss", "▲"), " " + (a.up || "正解はもっと上"), " ／ ", chip("miss", "▼"), " " + (a.down || "正解はもっと下")); }
+      else { td.append(chip("hit", "🟩"), " 一致 ／ ", chip("miss", "⬜"), " 不一致"); }
+      tr.appendChild(td); rb.appendChild(tr);
+    });
+    const notes = $("rules-notes"); notes.innerHTML = "";
+    (CFG.notes || []).forEach((n) => notes.appendChild(el("p", "note", n)));
+    const solo = el("p", "note"); solo.appendChild(el("b", null, "ひとりで遊ぶ：")); solo.appendChild(document.createTextNode(`推理できるのは${SOLO_MAX}回まで。${SOLO_MAX}回以内に当てられないと正解が公開されます。`)); notes.appendChild(solo);
+    const vsn = el("p", "note"); vsn.appendChild(el("b", null, "対戦モード：")); vsn.appendChild(document.createTextNode(`ホストがルームを作ってコードを友達に伝えます。全員同じ正解${ITEM}を、順番に1手ずつ推理。先に当てた人の勝ち。各手番には制限時間があり、規定ターンを過ぎると引き分けです。`)); notes.appendChild(vsn);
+    // フッター
+    const foot = $("foot"); foot.innerHTML = "";
+    foot.appendChild(document.createTextNode(CFG.credit || ""));
+    if (CFG.creditLink) { const a = el("a", null, CFG.creditLink.label); a.href = CFG.creditLink.url; a.target = "_blank"; a.rel = "noopener"; foot.append(" ", a, " "); }
+    foot.appendChild(document.createTextNode(CFG.creditTail || ""));
+    // 難易度・フィルター
+    $("difficulty-field").hidden = !CFG.difficulty;
+    if (CFG.difficulty) { $("diff-main-label").textContent = CFG.difficulty.mainLabel; $("diff-main-note").textContent = CFG.difficulty.mainNote || ""; $("diff-all-label").textContent = CFG.difficulty.allLabel; $("diff-all-note").textContent = CFG.difficulty.allNote || ""; }
+    $("filter-field").hidden = !CFG.filter;
+    if (CFG.filter) $("filter-label").textContent = CFG.filter.label;
+  }
+
   // ------------------------------------------------------------- settings
-  const SETTINGS_KEY = "inaguesser.settings.v1";
-  let settings = { difficulty: "main", works: D.works.map(() => true) };
+  const SETTINGS_KEY = CFG.id + ".settings.v1";
+  const filterOptions = CFG.filter ? LISTS[CFG.filter.options] : [];
+  let settings = { difficulty: CFG.difficulty ? "main" : "all", filter: filterOptions.map(() => true) };
   try {
     const saved = JSON.parse(localStorage.getItem(SETTINGS_KEY) || "null");
-    if (saved && Array.isArray(saved.works) && saved.works.length === D.works.length) settings = saved;
+    if (saved && Array.isArray(saved.filter) && saved.filter.length === filterOptions.length) settings = saved;
   } catch {}
-  function saveSettings() {
-    try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch {}
-  }
+  function saveSettings() { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch {} }
 
   function poolIndices(s) {
     const out = [];
     for (let i = 0; i < C.length; i++) {
       const c = C[i];
-      if (!s.works[c.f]) continue;
-      if (s.difficulty === "main" && !c.m) continue;
+      if (CFG.filter && !s.filter[c[CFG.filter.key]]) continue;
+      if (CFG.difficulty && s.difficulty === "main" && !isMain(c)) continue;
       out.push(i);
     }
     return out;
   }
+  const difficultyLabel = (s) => (CFG.difficulty ? (s.difficulty === "main" ? CFG.difficulty.mainLabel : CFG.difficulty.allLabel) : "全" + ITEM);
 
   function buildSettingsUI() {
-    const grid = $("works-checks");
-    grid.innerHTML = "";
-    D.works.forEach((w, i) => {
-      const lab = el("label");
-      const cb = el("input"); cb.type = "checkbox"; cb.checked = !!settings.works[i]; cb.dataset.i = i;
-      cb.addEventListener("change", () => { settings.works[i] = cb.checked; saveSettings(); updatePoolCount(); });
-      lab.appendChild(cb);
-      lab.appendChild(el("span", null, w.replace("イナズマイレブン", "イナイレ")));
-      grid.appendChild(lab);
-    });
+    const grid = $("works-checks"); grid.innerHTML = "";
+    if (CFG.filter) {
+      filterOptions.forEach((w, i) => {
+        const lab = el("label");
+        const cb = el("input"); cb.type = "checkbox"; cb.checked = !!settings.filter[i];
+        cb.addEventListener("change", () => { settings.filter[i] = cb.checked; saveSettings(); updatePoolCount(); });
+        lab.appendChild(cb); lab.appendChild(el("span", null, CFG.filter.optionLabel ? CFG.filter.optionLabel(w) : w));
+        grid.appendChild(lab);
+      });
+    }
     document.querySelectorAll('input[name="difficulty"]').forEach((r) => {
       r.checked = r.value === settings.difficulty;
       r.addEventListener("change", () => { if (r.checked) { settings.difficulty = r.value; saveSettings(); updatePoolCount(); } });
@@ -106,41 +146,49 @@ window.INA_START = (D) => {
   }
   function updatePoolCount() {
     const n = poolIndices(settings).length;
-    $("pool-count").textContent = n ? `現在の出題候補：${n}人` : "出題候補が0人です。作品を1つ以上選んでください。";
+    $("pool-count").textContent = n ? `現在の出題候補：${n}${UNIT}` : "出題候補が0です。範囲を広げてください。";
   }
 
   // -------------------------------------------------------------- compare
-  // 戻り値: {team:{s,same:Set}, gender:{s}, grade:{s,arrow}, element:{s}, first:{s,arrow}}
+  // 戻り値: { [attr.key]: {s:"hit"|"partial"|"miss", arrow?:"up"|"down", same?:[]} }
   function compare(gi, ai) {
-    const g = C[gi], a = C[ai];
-    const aset = new Set(a.t);
-    const same = g.t.filter((t) => aset.has(t));
-    const teamState = g.t.length === a.t.length && same.length === g.t.length ? "hit" : same.length ? "partial" : "miss";
-    const gradeArrow = g.gr === a.gr ? null : g.go != null && a.go != null && g.go !== a.go ? (a.go > g.go ? "up" : "down") : null;
-    return {
-      team: { s: teamState, same: new Set(same) },
-      gender: { s: g.g === a.g ? "hit" : "miss" },
-      pos: { s: g.p === a.p ? "hit" : "miss" },
-      grade: { s: g.gr === a.gr ? "hit" : "miss", arrow: gradeArrow },
-      element: { s: g.e === a.e ? "hit" : "miss" },
-      first: { s: g.f === a.f ? "hit" : "miss", arrow: g.f === a.f ? null : a.f > g.f ? "up" : "down" },
-    };
+    const g = C[gi], a = C[ai], r = {};
+    for (const at of ATTRS) {
+      const gv = g[at.key], av = a[at.key];
+      if (at.type === "set") {
+        const ga = gv || [], aa = av || [];
+        const aset = new Set(aa); const same = ga.filter((t) => aset.has(t));
+        r[at.key] = { s: ga.length === aa.length && same.length === ga.length ? "hit" : same.length ? "partial" : "miss", same };
+      } else if (at.type === "ordinal") {
+        const go = at.orderKey ? g[at.orderKey] : gv, ao = at.orderKey ? a[at.orderKey] : av;
+        const hit = gv === av;
+        r[at.key] = { s: hit ? "hit" : "miss", arrow: hit ? null : go != null && ao != null && go !== ao ? (ao > go ? "up" : "down") : null };
+      } else {
+        r[at.key] = { s: gv === av ? "hit" : "miss" };
+      }
+    }
+    return r;
   }
   const ARROW = { up: "▲", down: "▼" };
   const EMOJI = { hit: "🟩", partial: "🟨", miss: "⬜" };
   function rowEmoji(r) {
-    const a = (x) => (x.s === "hit" ? "🟩" : x.arrow === "up" ? "⬆️" : x.arrow === "down" ? "⬇️" : "⬜");
-    return EMOJI[r.team.s] + EMOJI[r.pos.s] + EMOJI[r.gender.s] + a(r.grade) + EMOJI[r.element.s] + a(r.first);
+    return ATTRS.map((a) => { const x = r[a.key]; return x.s === "hit" ? "🟩" : x.arrow === "up" ? "⬆️" : x.arrow === "down" ? "⬇️" : EMOJI[x.s]; }).join("");
+  }
+  // 表示用の値
+  function displayValue(at, c) {
+    const v = c[at.key];
+    if (at.type === "set") return (v && v.length) ? v.join(" / ") : (at.empty || "なし");
+    if (at.labels) return LISTS[at.labels][v] ?? String(v);
+    return v == null ? "-" : String(v);
+  }
+  function displayFull(at, c) {
+    const v = c[at.key];
+    if (at.type === "set") return (v && v.length) ? v.join(" / ") : (at.empty || "なし");
+    if (at.fullLabels) return LISTS[at.fullLabels][v] ?? String(v);
+    return displayValue(at, c);
   }
 
   // ---------------------------------------------------------------- board
-  function cell(state, text, arrow, extraCls) {
-    const s = el("span", "cell " + state + (extraCls ? " " + extraCls : ""));
-    s.appendChild(document.createTextNode(text));
-    if (arrow) s.appendChild(el("span", "arrow", ARROW[arrow]));
-    return s;
-  }
-  // 1推理 = 1カード（名前ヘッダー + 属性タイル）
   function tile(label, state, content, arrow, wide) {
     const t = el("div", "tile " + state + (wide ? " wide" : ""));
     t.appendChild(el("span", "tl", label));
@@ -154,23 +202,24 @@ window.INA_START = (D) => {
     const c = C[gi];
     const card = el("article", "gcard" + (isNew ? " new" : ""));
     const head = el("header", "gcard-head");
-    const img = el("img", "gcard-img"); img.alt = ""; img.loading = "lazy";
-    if (c.i) { img.src = IMG_BASE + c.i + ".webp"; img.onerror = () => img.classList.add("none"); } else img.classList.add("none");
-    head.appendChild(img);
-    const nm = el("div", "gcard-name"); nm.appendChild(el("span", "nm", c.n)); nm.appendChild(el("span", "kn", c.k)); head.appendChild(nm);
+    const url = imgUrl(c);
+    if (url) { const img = el("img", "gcard-img"); img.alt = ""; img.loading = "lazy"; img.src = url; img.onerror = () => img.classList.add("none"); head.appendChild(img); }
+    const nm = el("div", "gcard-name"); nm.appendChild(el("span", "nm", nameOf(c))); if (kanaOf(c)) nm.appendChild(el("span", "kn", kanaOf(c))); head.appendChild(nm);
     if (by) { const b = el("span", "gcard-by", by.name); b.style.setProperty("--c", by.color); head.appendChild(b); }
     card.appendChild(head);
 
     const tiles = el("div", "tiles");
-    const teamContent = el("span");
-    if (c.t.length) c.t.forEach((t) => teamContent.appendChild(el("span", "t" + (r.team.same.has(t) ? " same" : ""), t)));
-    else teamContent.textContent = "所属なし";
-    tiles.appendChild(tile("所属チーム", r.team.s, teamContent, null, true));
-    tiles.appendChild(tile("ポジション", r.pos.s, c.p));
-    tiles.appendChild(tile("性別", r.gender.s, c.g));
-    tiles.appendChild(tile("学年", r.grade.s, c.gr, r.grade.arrow));
-    tiles.appendChild(tile("属性", r.element.s, c.e));
-    tiles.appendChild(tile("初登場", r.first.s, D.short[c.f], r.first.arrow));
+    for (const at of ATTRS) {
+      const x = r[at.key];
+      let content;
+      if (at.type === "set") {
+        const v = c[at.key] || [];
+        content = el("span");
+        if (v.length) v.forEach((t) => content.appendChild(el("span", "t" + (x.same.includes(t) ? " same" : ""), t)));
+        else content.textContent = at.empty || "なし";
+      } else content = displayValue(at, c);
+      tiles.appendChild(tile(at.label, x.s, content, x.arrow, !!at.wide));
+    }
     card.appendChild(tiles);
     return card;
   }
@@ -196,7 +245,7 @@ window.INA_START = (D) => {
       if (s.n.startsWith(nq) || s.k.startsWith(nq) || s.a.startsWith(nq)) starts.push(i);
       else if (s.n.includes(nq) || s.k.includes(nq) || s.a.includes(nq)) contains.push(i);
     }
-    const byMain = (a, b) => (C[b].m - C[a].m) || (C[a].f - C[b].f);
+    const byMain = (a, b) => (isMain(C[b]) - isMain(C[a])) || a - b;
     starts.sort(byMain); contains.sort(byMain);
     return starts.concat(contains).slice(0, 40);
   }
@@ -206,20 +255,16 @@ window.INA_START = (D) => {
     suggestItems = searchChars(q);
     ul.innerHTML = "";
     if (!q.trim()) { ul.hidden = true; return; }
-    if (!suggestItems.length) {
-      ul.appendChild(el("li", "s-empty", "該当するキャラがいません"));
-    } else {
-      suggestItems.forEach((i, k) => {
-        const c = C[i];
-        const li = el("li", k === activeSuggest ? "active" : "");
-        li.dataset.i = i;
-        li.appendChild(el("span", "s-name", c.n));
-        li.appendChild(el("span", "s-kana", c.k));
-        li.appendChild(el("span", "s-team", c.p + "・" + c.t.slice(0, 2).join(" / ")));
-        li.addEventListener("mousedown", (e) => { e.preventDefault(); submitGuess(i); });
-        ul.appendChild(li);
-      });
-    }
+    if (!suggestItems.length) ul.appendChild(el("li", "s-empty", `該当する${ITEM}がいません`));
+    else suggestItems.forEach((i, k) => {
+      const c = C[i];
+      const li = el("li", k === activeSuggest ? "active" : "");
+      li.appendChild(el("span", "s-name", nameOf(c)));
+      if (kanaOf(c)) li.appendChild(el("span", "s-kana", kanaOf(c)));
+      if (CFG.suggestSub) li.appendChild(el("span", "s-team", CFG.suggestSub(c)));
+      li.addEventListener("mousedown", (e) => { e.preventDefault(); submitGuess(i); });
+      ul.appendChild(li);
+    });
     ul.hidden = false;
   }
   function hideSuggest() { $("suggest").hidden = true; activeSuggest = -1; }
@@ -236,9 +281,8 @@ window.INA_START = (D) => {
   }
 
   // ------------------------------------------------------------ game state
-  const SOLO_MAX = 10;
   const game = { mode: null, answer: -1, hint: -1, guesses: [], over: false };
-  // 本家と同じく、開始時に正解以外のキャラを1人ランダムに開示する
+  // 本家と同じく、開始時に正解以外を1つランダムに開示する
   function pickHint(pool, answer) {
     if (pool.length < 2) return -1;
     let h; do { h = pool[randInt(pool.length)]; } while (h === answer);
@@ -248,8 +292,13 @@ window.INA_START = (D) => {
     if (hintIdx < 0) return;
     appendRow(renderGuessRow(hintIdx, compare(hintIdx, answerIdx), null, false));
   }
-  function soloSub() { return `${game.guesses.length}手目`; }
-  function setRemaining(n) { const p = $("remain-pill"); if (n == null) { p.hidden = true; return; } p.hidden = false; p.innerHTML = ""; p.appendChild(el("span", "rl", "残り")); p.appendChild(el("b", null, String(n))); p.appendChild(el("span", "rl", "回")); p.classList.toggle("low", n <= 3); }
+  function setRemaining(n) {
+    const p = $("remain-pill");
+    if (n == null) { p.hidden = true; return; }
+    p.hidden = false; p.innerHTML = "";
+    p.appendChild(el("span", "rl", "残り")); p.appendChild(el("b", null, String(n))); p.appendChild(el("span", "rl", "回"));
+    p.classList.toggle("low", n <= 3);
+  }
   let timerHandle = null;
 
   function setInputEnabled(on, placeholder) {
@@ -261,7 +310,7 @@ window.INA_START = (D) => {
   function submitGuess(idx) {
     if (idx == null || idx < 0) {
       idx = resolveInputToIdx();
-      if (idx < 0) { toast("候補からキャラを選んでください"); return; }
+      if (idx < 0) { toast(`候補から${ITEM}を選んでください`); return; }
     }
     $("guess-input").value = "";
     hideSuggest();
@@ -272,28 +321,28 @@ window.INA_START = (D) => {
   // ------------------------------------------------------------------ solo
   function startSolo() {
     const pool = poolIndices(settings);
-    if (!pool.length) { toast("出題候補が0人です。設定を確認してください"); return; }
+    if (!pool.length) { toast("出題候補が0です。設定を確認してください"); return; }
     game.mode = "solo"; game.answer = pool[randInt(pool.length)]; game.guesses = []; game.over = false;
     game.hint = pickHint(pool, game.answer);
     showScreen("game");
     $("game-mode-label").textContent = "ひとりで遊ぶ";
-    $("game-sub").textContent = `${settings.difficulty === "main" ? "メインキャラ" : "全キャラ"}・候補 ${pool.length}人`;
+    $("game-sub").textContent = `${difficultyLabel(settings)}・候補 ${pool.length}${UNIT}`;
     setRemaining(SOLO_MAX);
     $("turn-box").hidden = true; $("game-players").hidden = true;
     $("btn-surrender").hidden = false;
     $("game-log").innerHTML = "";
     clearBoard();
     showHintRow(game.hint, game.answer);
-    setInputEnabled(true, "キャラ名を入力（ひらがな・ニックネームもOK）");
+    setInputEnabled(true, `${ITEM}名を入力（ひらがな・ニックネームもOK）`);
     $("guess-input").focus();
   }
   function soloGuess(idx) {
     if (game.over) return;
-    if (game.guesses.some((g) => g.idx === idx)) { toast("すでに推理したキャラです"); return; }
+    if (game.guesses.some((g) => g.idx === idx)) { toast(`すでに推理した${ITEM}です`); return; }
     const r = compare(idx, game.answer);
     game.guesses.push({ idx, r });
     appendRow(renderGuessRow(idx, r, null, true));
-    $("game-sub").textContent = soloSub();
+    $("game-sub").textContent = `${game.guesses.length}手目`;
     setRemaining(SOLO_MAX - game.guesses.length);
     if (idx === game.answer) {
       game.over = true; setInputEnabled(false);
@@ -310,7 +359,7 @@ window.INA_START = (D) => {
   }
   function soloShareText(gaveUp, failed) {
     const head = gaveUp ? `${game.guesses.length}手で降参` : failed ? `${SOLO_MAX}回以内に当てられず` : `${game.guesses.length}手で正解！`;
-    return [`イナゲッサー｜ひとりで遊ぶ`, `${head}（${settings.difficulty === "main" ? "メインキャラ" : "全キャラ"}）`, ...game.guesses.map((g) => rowEmoji(g.r))].join("\n");
+    return [`${CFG.title}｜ひとりで遊ぶ`, `${head}（${difficultyLabel(settings)}）`, ...game.guesses.map((g) => rowEmoji(g.r))].join("\n");
   }
 
   // ---------------------------------------------------------------- result
@@ -319,13 +368,12 @@ window.INA_START = (D) => {
     lastResult = res;
     const c = C[res.answer];
     const v = $("result-verdict"); v.textContent = res.verdict; v.className = "result-verdict " + (res.cls || "");
-    const img = $("result-img"); img.className = ""; img.src = c.i ? IMG_BASE + c.i + ".webp" : ""; img.alt = c.n;
+    const img = $("result-img"); const url = imgUrl(c);
+    img.className = url ? "" : "none"; img.src = url || ""; img.alt = nameOf(c);
     img.onerror = () => { img.className = "none"; };
-    $("result-title").textContent = c.n; $("result-kana").textContent = c.k;
+    $("result-title").textContent = nameOf(c); $("result-kana").textContent = kanaOf(c);
     const dl = $("result-attrs"); dl.innerHTML = "";
-    [["所属チーム", c.t.join(" / ") || "所属なし"], ["ポジション", c.p], ["性別", c.g], ["学年", c.gr], ["属性", c.e], ["初登場", D.works[c.f]]].forEach(([k, val]) => {
-      dl.appendChild(el("dt", null, k)); dl.appendChild(el("dd", null, val));
-    });
+    ATTRS.forEach((at) => { dl.appendChild(el("dt", null, at.fullLabel || at.label)); dl.appendChild(el("dd", null, displayFull(at, c))); });
     $("btn-copy-result").hidden = !res.share;
     $("btn-again").textContent = game.mode === "versus" ? (vs.isHost ? "もう一度（同じメンバー）" : "ホストの再戦を待つ") : "もう一度";
     $("btn-again").disabled = game.mode === "versus" && !vs.isHost;
@@ -342,23 +390,15 @@ window.INA_START = (D) => {
   function goHome() {
     if (game.mode === "versus") leaveVersus();
     game.mode = null; game.over = false;
-    stopTimer();
-    hideResult();
+    stopTimer(); hideResult();
     $("topbar-status").textContent = "";
     showScreen("home");
   }
   function stopTimer() { if (timerHandle) { clearInterval(timerHandle); timerHandle = null; } }
 
   // ---------------------------------------------------------------- versus
-  const vs = {
-    peer: null, isHost: false, code: null, conn: null, // guest: conn to host
-    host: null,   // host-only authoritative state
-    pub: null,    // public state (both sides)
-    me: -1,       // my player index
-    deadlineLocal: null,
-    name: "",
-  };
-  const NICK_KEY = "inaguesser.nick";
+  const vs = { peer: null, isHost: false, code: null, conn: null, host: null, pub: null, me: -1, deadlineLocal: null, name: "" };
+  const NICK_KEY = CFG.id + ".nick";
   try { vs.name = localStorage.getItem(NICK_KEY) || ""; } catch {}
 
   function myNick() {
@@ -376,17 +416,14 @@ window.INA_START = (D) => {
     $("join-code").value = prefillCode || "";
     lobbyStatus(peerAvailable() ? "" : "通信ライブラリを読み込めませんでした。ネットワーク環境を確認するか、公開版のURLから開いてください。");
   }
-
-  function makePeer(id) {
-    // PeerJS の公開シグナリングサーバー + 既定の STUN/TURN を使用
-    return new Peer(id, { debug: 1 });
-  }
+  // PeerJS の公開シグナリングサーバー + 既定の STUN/TURN を使用
+  function makePeer(id) { return new Peer(id, { debug: 1 }); }
 
   // ---- host
   function createRoom() {
     if (!peerAvailable()) { toast("通信ライブラリが読み込めていません"); return; }
     const pool = poolIndices(settings);
-    if (!pool.length) { toast("出題候補が0人です。ホームの設定を確認してください"); return; }
+    if (!pool.length) { toast("出題候補が0です。ホームの設定を確認してください"); return; }
     const name = myNick();
     lobbyStatus("ルームを作成中…");
     $("btn-create-room").disabled = true;
@@ -402,9 +439,9 @@ window.INA_START = (D) => {
       vs.host = {
         players: [{ name, conn: null, connected: true, out: false }],
         status: "lobby",
-        settings: { difficulty: settings.difficulty, works: settings.works.slice() },
+        settings: { difficulty: settings.difficulty, filter: settings.filter.slice() },
         opts: { turnSec: +$("turn-seconds").value, maxTurns: +$("max-turns").value },
-        answer: -1, guesses: [], turn: 0, turnNo: 1, deadline: null, winner: null, reason: null, events: [],
+        answer: -1, hint: -1, guesses: [], turn: 0, turnNo: 1, deadline: null, winner: null, reason: null, events: [],
       };
       peer.on("connection", onHostConnection);
       peer.on("disconnected", () => { lobbyStatus("シグナリングサーバーから切断されました。再接続中…"); try { peer.reconnect(); } catch {} });
@@ -454,9 +491,8 @@ window.INA_START = (D) => {
     if (!p || !p.connected) return;
     p.connected = false;
     hostEvent(`${p.name} が切断しました`);
-    if (H.status === "lobby") {
-      H.players = H.players.filter((x) => x.connected);
-    } else if (H.status === "playing") {
+    if (H.status === "lobby") H.players = H.players.filter((x) => x.connected);
+    else if (H.status === "playing") {
       checkRemaining();
       if (H.status === "playing" && H.turn === H.players.indexOf(p)) advanceTurn(false);
     }
@@ -469,7 +505,7 @@ window.INA_START = (D) => {
     const H = vs.host;
     if (H.players.filter((p) => p.connected).length < 2) { toast("2人以上で開始できます"); return; }
     const pool = poolIndices(H.settings);
-    if (!pool.length) { toast("出題候補が0人です"); return; }
+    if (!pool.length) { toast("出題候補が0です"); return; }
     H.players = H.players.filter((p) => p.connected);
     H.players.forEach((p, i) => { p.out = false; if (p.conn) hostSend(p.conn, { t: "welcome", you: i }); });
     H.answer = pool[randInt(pool.length)];
@@ -478,16 +514,16 @@ window.INA_START = (D) => {
     H.status = "playing";
     H.turn = randInt(H.players.length); H.turnNo = 1;
     H.deadline = H.opts.turnSec ? Date.now() + H.opts.turnSec * 1000 : null;
-    hostEvent(`対戦開始！ 正解候補 ${pool.length}人`);
+    hostEvent(`対戦開始！ 正解候補 ${pool.length}${UNIT}`);
     hostBroadcast();
   }
   function hostGuess(pIdx, idx) {
     const H = vs.host;
     if (H.status !== "playing" || H.turn !== pIdx) return;
     if (!(idx >= 0 && idx < C.length)) return;
-    if (H.guesses.some((g) => g.idx === idx)) { const p = H.players[pIdx]; if (p.conn) hostSend(p.conn, { t: "error", msg: "すでに推理されたキャラです" }); else toast("すでに推理されたキャラです"); return; }
+    if (H.guesses.some((g) => g.idx === idx)) { const p = H.players[pIdx]; if (p.conn) hostSend(p.conn, { t: "error", msg: `すでに推理された${ITEM}です` }); else toast(`すでに推理された${ITEM}です`); return; }
     H.guesses.push({ p: pIdx, idx });
-    if (idx === H.answer) { finish(pIdx, "correct"); }
+    if (idx === H.answer) finish(pIdx, "correct");
     else advanceTurn(true);
     hostBroadcast();
   }
@@ -517,18 +553,11 @@ window.INA_START = (D) => {
     }
     H.deadline = H.opts.turnSec ? Date.now() + H.opts.turnSec * 1000 : null;
   }
-  function finish(winner, reason) {
-    const H = vs.host;
-    H.status = "finished"; H.winner = winner; H.reason = reason; H.deadline = null;
-  }
+  function finish(winner, reason) { const H = vs.host; H.status = "finished"; H.winner = winner; H.reason = reason; H.deadline = null; }
   function hostTick() {
     const H = vs.host;
     if (!H || H.status !== "playing" || !H.deadline) return;
-    if (Date.now() >= H.deadline) {
-      hostEvent(`${H.players[H.turn].name} は時間切れ`);
-      advanceTurn(true);
-      hostBroadcast();
-    }
+    if (Date.now() >= H.deadline) { hostEvent(`${H.players[H.turn].name} は時間切れ`); advanceTurn(true); hostBroadcast(); }
   }
   function publicState() {
     const H = vs.host;
@@ -536,14 +565,13 @@ window.INA_START = (D) => {
       status: H.status,
       players: H.players.map((p) => ({ name: p.name, connected: p.connected, out: p.out })),
       settings: H.settings, opts: H.opts,
-      guesses: H.guesses.map((g) => ({ p: g.p, idx: g.idx, r: compareSerial(g.idx, H.answer) })),
+      guesses: H.guesses.map((g) => ({ p: g.p, idx: g.idx, r: compare(g.idx, H.answer) })),
       turn: H.turn, turnNo: H.turnNo, now: Date.now(), deadline: H.deadline,
       winner: H.winner, reason: H.reason, events: H.events,
       answer: H.status === "finished" ? H.answer : -1,
-      hint: H.hint, hintR: H.hint >= 0 ? compareSerial(H.hint, H.answer) : null,
+      hint: H.hint, hintR: H.hint >= 0 ? compare(H.hint, H.answer) : null,
     };
   }
-  function compareSerial(gi, ai) { const r = compare(gi, ai); return { ...r, team: { s: r.team.s, same: [...r.team.same] } }; }
   function hostBroadcast() {
     const H = vs.host; if (!H) return;
     const pub = publicState();
@@ -611,7 +639,6 @@ window.INA_START = (D) => {
     vs.peer = null; vs.conn = null; vs.host = null; vs.pub = null; vs.isHost = false; vs.code = null; vs.me = -1;
     $("topbar-status").textContent = "";
   }
-
   function renderPlayers(ul, pub) {
     ul.innerHTML = "";
     pub.players.forEach((p, i) => {
@@ -627,10 +654,7 @@ window.INA_START = (D) => {
   let renderedGuessCount = 0;
   let lastStatus = null;
   function applyState(pub) {
-    pub.guesses.forEach((g) => { if (!(g.r.team.same instanceof Set)) g.r.team.same = new Set(g.r.team.same); });
-    if (pub.hintR && !(pub.hintR.team.same instanceof Set)) pub.hintR.team.same = new Set(pub.hintR.team.same);
     vs.pub = pub;
-    // ロビー
     renderPlayers($("lobby-players"), pub);
     if (vs.isHost) $("btn-start-versus").disabled = pub.players.filter((p) => p.connected).length < 2;
 
@@ -639,8 +663,6 @@ window.INA_START = (D) => {
       lastStatus = "lobby";
       return;
     }
-
-    // ゲーム画面へ
     if (game.mode !== "versus" || lastStatus === "lobby" || lastStatus == null) {
       game.mode = "versus"; game.over = false;
       hideResult();
@@ -650,11 +672,11 @@ window.INA_START = (D) => {
       $("game-log").innerHTML = "";
       clearBoard(); renderedGuessCount = -1;
       if (!timerHandle) timerHandle = setInterval(tick, 250);
-      $("guess-input").placeholder = "キャラ名を入力";
+      $("guess-input").placeholder = `${ITEM}名を入力`;
     }
     if (renderedGuessCount > pub.guesses.length) { clearBoard(); renderedGuessCount = -1; } // 再戦
     if (renderedGuessCount < 0) { if (pub.hint >= 0 && pub.hintR) appendRow(renderGuessRow(pub.hint, pub.hintR, null, false)); renderedGuessCount = 0; }
-    $("game-sub").textContent = `${pub.settings.difficulty === "main" ? "メインキャラ" : "全キャラ"}・ターン ${Math.min(pub.turnNo, pub.opts.maxTurns || pub.turnNo)}${pub.opts.maxTurns ? " / " + pub.opts.maxTurns : ""}`;
+    $("game-sub").textContent = `${difficultyLabel(pub.settings)}・ターン ${Math.min(pub.turnNo, pub.opts.maxTurns || pub.turnNo)}${pub.opts.maxTurns ? " / " + pub.opts.maxTurns : ""}`;
     setRemaining(pub.opts.maxTurns ? Math.max(0, pub.opts.maxTurns - pub.turnNo + 1) : null);
     renderPlayers($("game-players"), pub);
 
@@ -664,7 +686,6 @@ window.INA_START = (D) => {
     }
     renderedGuessCount = pub.guesses.length;
 
-    // イベントログ（差分は簡易に全置換）
     const lg = $("game-log"); lg.innerHTML = "";
     pub.events.forEach((e) => lg.prepend(el("div", null, e)));
 
@@ -678,8 +699,8 @@ window.INA_START = (D) => {
       const who = $("turn-who");
       who.textContent = mine ? "あなたの番！" : `${pub.players[pub.turn].name} の番`;
       who.className = "turn-who" + (mine ? " me" : "");
-      setInputEnabled(mine && !meOut, mine ? "キャラ名を入力して推理！" : "相手の番です…");
-      if (mine && lastStatus !== "playing:" + pub.turnNo) { $("guess-input").focus(); }
+      setInputEnabled(mine && !meOut, mine ? `${ITEM}名を入力して推理！` : "相手の番です…");
+      if (mine && lastStatus !== "playing:" + pub.turnNo) $("guess-input").focus();
       lastStatus = "playing:" + pub.turnNo;
       tick();
     } else if (pub.status === "finished") {
@@ -698,7 +719,7 @@ window.INA_START = (D) => {
     }
   }
   function versusShareText(pub, verdict) {
-    return [`イナゲッサー｜対戦モード`, verdict, `正解：${C[pub.answer].n}`, ...pub.guesses.slice().map((g) => `${pub.players[g.p].name}: ${rowEmoji(g.r)}`)].join("\n");
+    return [`${CFG.title}｜対戦モード`, verdict, `正解：${nameOf(C[pub.answer])}`, ...pub.guesses.map((g) => `${pub.players[g.p].name}: ${rowEmoji(g.r)}`)].join("\n");
   }
   function tick() {
     if (vs.isHost) hostTick();
@@ -720,6 +741,7 @@ window.INA_START = (D) => {
   }
 
   // ---------------------------------------------------------------- events
+  const keyedLink = (extra) => `${location.origin}${location.pathname}${extra || ""}${window.GAME_KEY ? "#k=" + window.GAME_KEY : ""}`;
   $("brand-btn").addEventListener("click", goHome);
   $("btn-solo").addEventListener("click", startSolo);
   $("btn-versus").addEventListener("click", () => openLobby());
@@ -727,8 +749,8 @@ window.INA_START = (D) => {
   $("btn-join-room").addEventListener("click", joinRoom);
   $("join-code").addEventListener("keydown", (e) => { if (e.key === "Enter") joinRoom(); });
   $("btn-copy-code").addEventListener("click", () => copyText(vs.code || ""));
-  $("btn-copy-link").addEventListener("click", () => copyText(`${location.origin}${location.pathname}?room=${vs.code}#k=${window.INA_KEY}`));
-  $("btn-copy-app-link").addEventListener("click", () => copyText(`${location.origin}${location.pathname}#k=${window.INA_KEY}`));
+  $("btn-copy-link").addEventListener("click", () => copyText(keyedLink(`?room=${vs.code}`)));
+  $("btn-copy-app-link").addEventListener("click", () => copyText(keyedLink()));
   $("btn-start-versus").addEventListener("click", hostStart);
   $("btn-leave-lobby").addEventListener("click", () => { leaveVersus(); openLobby(); });
   // 2回押しで確定（ブラウザの confirm ダイアログは環境によって出ないため使わない）
@@ -767,6 +789,7 @@ window.INA_START = (D) => {
   window.addEventListener("beforeunload", () => { try { vs.peer && vs.peer.destroy(); } catch {} });
 
   // ------------------------------------------------------------------ init
+  applyConfigText();
   buildSettingsUI();
   const roomParam = new URLSearchParams(location.search).get("room");
   if (roomParam && /^\d{6}$/.test(roomParam)) openLobby(roomParam);

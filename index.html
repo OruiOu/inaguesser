@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>イナゲッサー</title>
-<meta name="description" content="イナズマイレブンのキャラを、所属チーム・ポジション・性別・学年・属性・初登場作品のヒントから当てる推理ゲーム。ルームコードで友達とオンライン対戦。">
+<title>キャラ当てゲーム</title>
+<meta name="description" content="キャラをヒントから当てる推理ゲーム。ルームコードで友達とオンライン対戦。">
 <meta name="robots" content="noindex, nofollow, noarchive">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -17,7 +17,7 @@
 <header class="topbar">
   <button class="brand" id="brand-btn" type="button" aria-label="ホームへ">
     <svg width="26" height="26" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="#102a5c"/><path d="M36 8 18 36h13l-4 20 19-30H33z" fill="#ffd23f"/></svg>
-    <span>イナゲッサー</span>
+    <span id="brand-text"></span>
   </button>
   <div class="topbar-right" id="topbar-status"></div>
 </header>
@@ -35,19 +35,17 @@
   <!-- ===== ホーム ===== -->
   <section id="screen-home" class="screen">
     <div class="hero">
-      <div class="hero-kicker">INAZUMA ELEVEN CHARACTER GUESSER</div>
-      <h1>イナズマイレブンのキャラを<br>ヒントから当てよう</h1>
-      <div class="hero-demo" aria-hidden="true">
-        <span class="demo-tile partial">所属チーム</span><span class="demo-tile hit">ポジション</span><span class="demo-tile miss">性別</span><span class="demo-tile miss">学年 ▲</span><span class="demo-tile hit">属性</span><span class="demo-tile miss">初登場 ▼</span>
-      </div>
-      <p class="lead">キャラ名を入力すると、<b>所属チーム・ポジション・性別・学年・属性・初登場作品</b>が正解とどれだけ近いか表示されます。少しずつ絞り込んで正解を当ててください。</p>
+      <div class="hero-kicker" id="hero-kicker"></div>
+      <h1 id="hero-title"></h1>
+      <div class="hero-demo" id="hero-demo" aria-hidden="true"></div>
+      <p class="lead" id="hero-lead"></p>
     </div>
 
     <div class="mode-grid">
       <button class="mode-card" id="btn-solo" type="button">
         <span class="mode-icon">🎯</span>
         <span class="mode-title">ひとりで遊ぶ</span>
-        <span class="mode-desc">ランダムなキャラを10回以内に当てられるか</span>
+        <span class="mode-desc" id="mode-solo-desc"></span>
       </button>
       <button class="mode-card accent" id="btn-versus" type="button">
         <span class="mode-icon">⚔️</span>
@@ -64,33 +62,26 @@
     <details class="panel" id="settings-panel" open>
       <summary>出題設定</summary>
       <div class="panel-body">
-        <div class="field">
+        <div class="field" id="difficulty-field">
           <div class="field-label">難易度</div>
           <div class="seg" role="radiogroup" id="difficulty-seg">
-            <label><input type="radio" name="difficulty" value="main" checked><span>メインキャラのみ<small>約150人</small></span></label>
-            <label><input type="radio" name="difficulty" value="all"><span>全キャラ<small>チーム所属の全選手</small></span></label>
+            <label><input type="radio" name="difficulty" value="main" checked><span><span id="diff-main-label"></span><small id="diff-main-note"></small></span></label>
+            <label><input type="radio" name="difficulty" value="all"><span><span id="diff-all-label"></span><small id="diff-all-note"></small></span></label>
           </div>
         </div>
-        <div class="field">
-          <div class="field-label">出題範囲（初登場作品）</div>
+        <div class="field" id="filter-field">
+          <div class="field-label" id="filter-label"></div>
           <div class="check-grid" id="works-checks"></div>
-          <div class="pool-count" id="pool-count"></div>
         </div>
+        <div class="pool-count" id="pool-count"></div>
       </div>
     </details>
 
     <details class="panel">
       <summary>遊び方・判定ルール</summary>
       <div class="panel-body rules">
-        <table class="rules-table">
-          <tr><th>所属チーム</th><td><span class="chip hit">🟩</span> 全チームが一致 ／ <span class="chip partial">🟨</span> 1つ以上同じチームがある ／ <span class="chip miss">⬜</span> 共通なし</td></tr>
-          <tr><th>ポジション・性別・属性</th><td><span class="chip hit">🟩</span> 一致 ／ <span class="chip miss">⬜</span> 不一致</td></tr>
-          <tr><th>学年</th><td><span class="chip hit">🟩</span> 一致 ／ <span class="chip miss">▲</span> 正解はもっと上の学年 ／ <span class="chip miss">▼</span> 正解はもっと下の学年</td></tr>
-          <tr><th>初登場作品</th><td><span class="chip hit">🟩</span> 一致 ／ <span class="chip miss">▲</span> 正解はもっと後の作品 ／ <span class="chip miss">▼</span> 正解はもっと前の作品</td></tr>
-        </table>
-        <p class="note"><b>ひとりで遊ぶ：</b>推理できるのは10回まで。10回以内に当てられないと正解が公開されます。</p>
-        <p class="note">学年は原則として初登場時のもの。大人・小学生などは学年の代わりに年代を表示します（「超越」などは矢印なし）。データは公式選手図鑑 Inagle を元にしています。</p>
-        <p class="note"><b>対戦モード：</b>ホストがルームを作ってコードを友達に伝えます。全員同じ正解キャラを、順番に1手ずつ推理。先に当てた人の勝ち。各手番には制限時間があり、規定ターンを過ぎると引き分けです。</p>
+        <table class="rules-table"><tbody id="rules-body"></tbody></table>
+        <div id="rules-notes"></div>
       </div>
     </details>
   </section>
@@ -176,14 +167,14 @@
 
     <div class="guess-area" id="guess-area">
       <div class="guess-input-wrap">
-        <input id="guess-input" class="text" placeholder="キャラ名を入力（ひらがな・ニックネームもOK）" autocomplete="off" autocapitalize="off">
+        <input id="guess-input" class="text" placeholder="名前を入力" autocomplete="off" autocapitalize="off">
         <button class="btn primary" id="guess-button" type="button">GUESS</button>
       </div>
       <ul class="suggest" id="suggest" hidden></ul>
     </div>
 
     <div class="board" id="board-body"></div>
-    <p class="board-empty" id="board-empty">まだ推理していません。上の入力欄からキャラ名を入れてみよう。</p>
+    <p class="board-empty" id="board-empty">まだ推理していません。上の入力欄から名前を入れてみよう。</p>
 
     <div class="row game-controls">
       <button class="btn danger" id="btn-surrender" type="button">降参</button>
@@ -215,11 +206,10 @@
 
 <div class="toast" id="toast" hidden></div>
 
-<footer class="foot">
-  非公式ファンゲームです。キャラクターデータは <a href="https://zukan.inazuma.jp/" target="_blank" rel="noopener">イナズマイレブン公式選手図鑑 Inagle</a> を元にしています。©LEVEL-5 Inc.
-</footer>
+<footer class="foot" id="foot"></footer>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.5/peerjs.min.js"></script>
+<script src="config.js"></script>
 <script src="app.js"></script>
 <script src="loader.js"></script>
 </body>
