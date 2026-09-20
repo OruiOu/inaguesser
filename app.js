@@ -409,6 +409,7 @@ window.GAME_START = (D) => {
     const topicVs = game.mode === "versus" && vs.pub && hasSetter(vs.pub.mode);
     $("btn-again").textContent = game.mode === "versus" ? (vs.isHost ? (topicVs ? "次のお題を選ぶ" : "もう一度（同じメンバー）") : "ホストの再戦を待つ") : "もう一度";
     $("btn-again").disabled = game.mode === "versus" && !vs.isHost;
+    $("btn-swap-setter").hidden = !(topicVs && vs.isHost && vs.pub.players.filter((p) => p.connected).length > 1);
     $("result-modal").hidden = false;
   }
   function hideResult() { $("result-modal").hidden = true; }
@@ -429,7 +430,7 @@ window.GAME_START = (D) => {
   function stopTimer() { if (timerHandle) { clearInterval(timerHandle); timerHandle = null; } }
 
   // ---------------------------------------------------------------- versus
-  const vs = { peer: null, isHost: false, code: null, conn: null, host: null, pub: null, me: -1, deadlineLocal: null, name: "" };
+  const vs = { peer: null, isHost: false, code: null, conn: null, host: null, pub: null, me: -1, deadlineLocal: null, name: "", myTopic: -1 };
   const NICK_KEY = CFG.id + ".nick";
   try { vs.name = localStorage.getItem(NICK_KEY) || ""; } catch {}
 
@@ -476,6 +477,7 @@ window.GAME_START = (D) => {
         settings: { difficulty: settings.difficulty, filter: settings.filter.slice() },
         opts: { turnSec: +$("turn-seconds").value, maxTurns: mode === "qa" ? 0 : +$("max-turns").value, qMax: +$("qa-questions").value, gMax: +$("qa-guesses").value },
         answer: -1, hint: -1, guesses: [], turn: 0, turnNo: 1, deadline: null, winner: null, reason: null, events: [],
+        setter: 0,   // 出題者（お題・質問モード）。ロビーで交代できる
         // 質問モード
         qa: [], qLeft: 0, gLeft: 0, phase: "ask",   // qa: [{k:"q",p,q,a} | {k:"g",p,idx,ok}] を時系列で
       };
@@ -520,6 +522,8 @@ window.GAME_START = (D) => {
     if (pIdx < 0) return;
     if (msg.t === "guess") hostGuess(pIdx, msg.idx | 0);
     else if (msg.t === "ask") hostAsk(pIdx, msg.q);
+    else if (msg.t === "topic") { if (pIdx === H.setter) hostSetTopic(msg.idx | 0); }
+    else if (msg.t === "answer") { if (pIdx === H.setter) hostAnswer(msg.k); }
     else if (msg.t === "surrender") hostSurrender(pIdx);
   }
   function hostOnLeave(conn) {
@@ -528,17 +532,25 @@ window.GAME_START = (D) => {
     if (!p || !p.connected) return;
     p.connected = false;
     hostEvent(`${p.name} が切断しました`);
-    if (H.status === "lobby") H.players = H.players.filter((x) => x.connected);
+    if (H.status === "lobby") {
+      const setterP = H.players[H.setter];
+      H.players = H.players.filter((x) => x.connected);
+      const si = H.players.indexOf(setterP);
+      if (si < 0) { H.setter = 0; H.answer = -1; } else H.setter = si;
+      H.players.forEach((x, i) => { if (x.conn) hostSend(x.conn, { t: "welcome", you: i }); });
+    }
     else if (H.status === "playing") {
+      if (isSetter(H, H.players.indexOf(p))) { finish(null, "setter_left"); hostBroadcast(); return; }
       checkRemaining();
       if (H.status === "playing" && H.turn === H.players.indexOf(p)) advanceTurn(false);
     }
     hostBroadcast();
   }
   function hostEvent(text) { const H = vs.host; H.events.push(text); if (H.events.length > 20) H.events.shift(); }
-  // 出題者がいるモード（お題モード・質問モード）ではホスト(0番)が出題者
+  // 出題者がいるモード（お題モード・質問モード）。出題者は H.setter（初期はホスト。ロビーで交代できる）
   const hasSetter = (mode) => mode === "topic" || mode === "qa";
-  const isSetter = (H, i) => hasSetter(H.mode) && i === 0;
+  const isSetter = (H, i) => hasSetter(H.mode) && i === H.setter;
+  const setterName = (pub) => (pub.players[pub.setter] ? pub.players[pub.setter].name : "出題者");
   const selectedVsMode = () => { const v = (document.querySelector('input[name="vsmode"]:checked') || {}).value; return v === "topic" || v === "qa" ? v : "random"; };
   // 質問モードの回答の種類
   const QA_ANSWERS = [
@@ -556,7 +568,9 @@ window.GAME_START = (D) => {
     if (setter && !(H.answer >= 0)) { toast("お題を選んでください"); return; }
     const pool = poolIndices(H.settings);
     if (!setter && !pool.length) { toast("出題候補が0です"); return; }
+    const setterP = H.players[H.setter];
     H.players = H.players.filter((p) => p.connected);
+    H.setter = Math.max(0, H.players.indexOf(setterP));   // 切断者を除いた後の番号に付け直す
     H.players.forEach((p, i) => { p.out = false; if (p.conn) hostSend(p.conn, { t: "welcome", you: i }); });
     if (!setter) H.answer = pool[randInt(pool.length)];
     // 質問モードはヒント（初期開示）なし
@@ -564,32 +578,54 @@ window.GAME_START = (D) => {
     H.guesses = []; H.winner = null; H.reason = null; H.events = [];
     H.qa = []; H.qLeft = H.opts.qMax || 0; H.gLeft = H.opts.gMax || 0; H.phase = "ask";
     H.status = "playing";
-    H.turn = setter ? 1 : randInt(H.players.length); H.turnNo = 1;
+    if (setter) { H.turn = H.setter; advanceTurn(false); } else H.turn = randInt(H.players.length);
+    H.turnNo = 1;
     H.deadline = H.opts.turnSec ? Date.now() + H.opts.turnSec * 1000 : null;
-    hostEvent(H.mode === "qa" ? `対戦開始！ ${H.players[0].name} に質問して、お題の${ITEM}を当てよう（質問${H.qLeft}回・回答${H.gLeft}回まで）`
-      : setter ? `対戦開始！ ${H.players[0].name} が出したお題を当てよう` : `対戦開始！ 正解候補 ${pool.length}${UNIT}`);
+    hostEvent(H.mode === "qa" ? `対戦開始！ ${H.players[H.setter].name} に質問して、お題の${ITEM}を当てよう（質問${H.qLeft}回・回答${H.gLeft}回まで）`
+      : setter ? `対戦開始！ ${H.players[H.setter].name} が出したお題を当てよう` : `対戦開始！ 正解候補 ${pool.length}${UNIT}`);
     hostBroadcast();
   }
-  function hostBackToLobby() {
+  function hostBackToLobby(rotateSetter) {
     const H = vs.host; if (!H) return;
+    const curSetter = H.players[H.setter];
     H.status = "lobby"; H.answer = -1; H.hint = -1; H.guesses = []; H.winner = null; H.reason = null; H.events = [];
     H.qa = []; H.phase = "ask";
     H.players = H.players.filter((p) => p.connected); H.players.forEach((p, i) => { p.out = false; if (p.conn) hostSend(p.conn, { t: "welcome", you: i }); });
+    let si = Math.max(0, H.players.indexOf(curSetter));
+    if (rotateSetter && H.players.length > 1) si = (si + 1) % H.players.length;   // 次の人に交代
+    H.setter = si;
+    hostBroadcast();
+  }
+  function hostSetSetter(i) {
+    const H = vs.host; if (!H || H.status !== "lobby" || !hasSetter(H.mode)) return;
+    if (!(i >= 0 && i < H.players.length)) return;
+    if (H.setter !== i) { H.setter = i; H.answer = -1; hostEvent(`出題者が ${H.players[i].name} に交代`); }
     hostBroadcast();
   }
   function hostSetTopic(idx) {
     const H = vs.host; if (!H || H.status !== "lobby") return;
-    H.answer = idx;
-    renderTopicUI();
+    H.answer = idx >= 0 && idx < C.length ? idx : -1;
     hostBroadcast();
   }
+  // 出題者（ホストでもゲストでも）がお題を選ぶ／取り消す
+  function pickTopic(idx) {
+    if (vs.isHost) { hostSetTopic(idx); return; }
+    vs.myTopic = idx >= 0 ? idx : -1;
+    if (vs.conn) vs.conn.send({ t: "topic", idx: vs.myTopic });
+    renderTopicUI();
+  }
+  const myTopicIdx = () => (vs.isHost ? (vs.host ? vs.host.answer : -1) : vs.myTopic);
   function renderTopicUI() {
-    const H = vs.host; const on = !!(H && vs.isHost && hasSetter(H.mode));
+    const H = vs.host, pub = vs.pub;
+    const mode = H ? H.mode : pub ? pub.mode : null;
+    const setter = H ? H.setter : pub ? pub.setter : -1;
+    const status = H ? H.status : pub ? pub.status : null;
+    const on = !!mode && hasSetter(mode) && vs.me === setter && status === "lobby";
     $("topic-field").hidden = !on;
     if (!on) return;
-    const chosen = H.answer >= 0;
+    const idx = myTopicIdx(); const chosen = idx >= 0;
     $("topic-picker").hidden = chosen; $("topic-chosen").hidden = !chosen;
-    if (chosen) $("topic-name").textContent = nameOf(C[H.answer]);
+    if (chosen) $("topic-name").textContent = nameOf(C[idx]);
   }
   function hostGuess(pIdx, idx) {
     const H = vs.host;
@@ -675,13 +711,13 @@ window.GAME_START = (D) => {
     const H = vs.host;
     if (!H || H.status !== "playing" || !H.deadline) return;
     if (Date.now() < H.deadline) return;
-    if (H.mode === "qa" && H.phase === "answer") { hostEvent(`${H.players[0].name} が時間内に答えなかったので「わからない」扱い`); hostAnswer("unknown"); return; }
+    if (H.mode === "qa" && H.phase === "answer") { hostEvent(`${H.players[H.setter].name} が時間内に答えなかったので「わからない」扱い`); hostAnswer("unknown"); return; }
     hostEvent(`${H.players[H.turn].name} は時間切れ`); advanceTurn(true); hostBroadcast();
   }
   function publicState() {
     const H = vs.host;
     return {
-      status: H.status, mode: H.mode, topicChosen: H.answer >= 0,
+      status: H.status, mode: H.mode, topicChosen: H.answer >= 0, setter: H.setter,
       players: H.players.map((p) => ({ name: p.name, connected: p.connected, out: p.out })),
       settings: H.settings, opts: H.opts,
       guesses: H.guesses.map((g) => ({ p: g.p, idx: g.idx, r: compare(g.idx, H.answer) })),
@@ -767,13 +803,22 @@ window.GAME_START = (D) => {
       const li = el("li", (i === vs.me ? "me " : "") + (pub.status === "playing" && pub.turn === i ? "turn " : "") + (!p.connected || p.out ? "offline" : ""));
       const dot = el("span", "pdot"); dot.style.setProperty("--c", PLAYER_COLORS[i % PLAYER_COLORS.length]); li.appendChild(dot);
       li.appendChild(el("span", null, p.name + (i === 0 ? "（ホスト）" : "")));
-      const setter = hasSetter(pub.mode) && i === 0;
+      const setter = hasSetter(pub.mode) && i === pub.setter;
       const tag = !p.connected ? "切断" : p.out ? "降参" : setter ? (i === vs.me ? "出題者（あなた）" : "出題者") : i === vs.me ? "あなた" : "";
       if (tag) li.appendChild(el("span", "ptag", tag));
       ul.appendChild(li);
     });
   }
 
+  // ロビーの「出題者」選択（ホストのみ操作可。お題・質問モード）
+  function renderSetterUI(pub) {
+    const on = vs.isHost && hasSetter(pub.mode) && pub.status === "lobby";
+    $("setter-field").hidden = !on;
+    if (!on) return;
+    const sel = $("setter-select"); sel.innerHTML = "";
+    pub.players.forEach((p, i) => { const o = el("option", null, p.name + (i === 0 ? "（ホスト）" : "")); o.value = String(i); sel.appendChild(o); });
+    sel.value = String(pub.setter);
+  }
   let renderedGuessCount = 0;
   let lastStatus = null;
   function applyState(pub) {
@@ -784,10 +829,13 @@ window.GAME_START = (D) => {
     if (vs.isHost) $("btn-start-versus").disabled = pub.players.filter((p) => p.connected).length < 2 || (topic && !pub.topicChosen);
     if (pub.status === "lobby") {
       if (game.mode === "versus") { game.mode = null; stopTimer(); hideResult(); showScreen("lobby"); enterRoomView(); }
+      if (!pub.topicChosen) vs.myTopic = -1;
       renderTopicUI();
+      renderSetterUI(pub);
+      const meSet = topic && vs.me === pub.setter;
       $("lobby-hint").textContent = vs.isHost
-        ? (topic ? "お題を選んで、回答者がそろったら「対戦開始」。" : "友達にコードを伝えて、全員そろったら「対戦開始」。")
-        : (topic ? (pub.topicChosen ? "お題は決まりました。ホストが開始するまでお待ちください。" : "ホストがお題を選んでいます…") : "ホストが開始するまでお待ちください。");
+        ? (topic ? (meSet ? "お題を選んで、回答者がそろったら「対戦開始」。" : (pub.topicChosen ? `${setterName(pub)} がお題を決めました。「対戦開始」で始められます。` : `${setterName(pub)} がお題を選んでいます…`)) : "友達にコードを伝えて、全員そろったら「対戦開始」。")
+        : (topic ? (meSet ? "あなたが出題者です。お題を選んでください（開始はホストが行います）。" : (pub.topicChosen ? "お題は決まりました。ホストが開始するまでお待ちください。" : `${setterName(pub)} がお題を選んでいます…`)) : "ホストが開始するまでお待ちください。");
       lastStatus = "lobby";
       return;
     }
@@ -826,7 +874,7 @@ window.GAME_START = (D) => {
 
     vs.deadlineLocal = pub.deadline ? Date.now() + (pub.deadline - pub.now) : null;
     const meOut = pub.players[vs.me] && pub.players[vs.me].out;
-    const meSetter = topic && vs.me === 0;
+    const meSetter = topic && vs.me === pub.setter;
     $("btn-surrender").hidden = pub.status !== "playing" || meOut || meSetter;
 
     if (pub.status === "playing") {
@@ -837,8 +885,8 @@ window.GAME_START = (D) => {
       who.innerHTML = "";
       if (meSetter) {
         who.appendChild(document.createTextNode(answering ? "質問に答えてください" : `${pub.players[pub.turn].name} の番`));
-        const tp = el("div", "turn-topic"); tp.append("お題：", el("b", null, vs.host ? nameOf(C[vs.host.answer]) : "")); who.appendChild(tp);
-      } else who.textContent = answering ? `${pub.players[0].name} が回答中…` : mine ? "あなたの番！" : `${pub.players[pub.turn].name} の番`;
+        const tp = el("div", "turn-topic"); tp.append("お題：", el("b", null, myTopicIdx() >= 0 ? nameOf(C[myTopicIdx()]) : "")); who.appendChild(tp);
+      } else who.textContent = answering ? `${setterName(pub)} が回答中…` : mine ? "あなたの番！" : `${pub.players[pub.turn].name} の番`;
       who.className = "turn-who" + ((mine && !answering) || (meSetter && answering) ? " me" : "");
       if (qa) {
         const canAct = mine && !meOut && !meSetter && !answering;
@@ -866,6 +914,7 @@ window.GAME_START = (D) => {
         if (topic) {
           if (pub.reason === "correct") { verdict = meSetter ? `${pub.players[w].name} が正解！` : w === vs.me ? "正解！あなたの勝ち！" : `${pub.players[w].name} が正解`; cls = meSetter ? "lose" : w === vs.me ? "win" : "lose"; }
           else if (pub.reason === "max_turns") { verdict = meSetter ? "誰も当てられず！出題者の勝ち" : "ターン上限。誰も当てられず…"; cls = meSetter ? "win" : "lose"; }
+          else if (pub.reason === "setter_left") { verdict = "出題者が退出したため終了"; cls = ""; }
           else if (pub.reason === "no_guesses") { verdict = meSetter ? "回答回数を使い切った！出題者の勝ち" : "回答回数を使い切って当てられず…"; cls = meSetter ? "win" : "lose"; }
           else { verdict = meSetter ? "全員降参！出題者の勝ち" : "全員降参…"; cls = meSetter ? "win" : "lose"; }
         }
@@ -921,7 +970,7 @@ window.GAME_START = (D) => {
     else if (vs.conn) vs.conn.send({ t: "guess", idx });
   }
   function versusSurrender() {
-    if (vs.isHost) hostSurrender(0);
+    if (vs.isHost) hostSurrender(vs.me);
     else if (vs.conn) vs.conn.send({ t: "surrender" });
   }
 
@@ -983,7 +1032,7 @@ window.GAME_START = (D) => {
   $("qa-input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); versusAsk(); } });
   QA_ANSWERS.forEach((a) => {
     const b = el("button", "btn qa-btn " + a.k, a.label); b.type = "button";
-    b.addEventListener("click", () => hostAnswer(a.k));
+    b.addEventListener("click", () => { if (vs.isHost) hostAnswer(a.k); else if (vs.conn) vs.conn.send({ t: "answer", k: a.k }); });
     $("qa-answer-buttons").appendChild(b);
   });
   // ルーム作成カード：モードに応じて設定項目を出し分け
@@ -994,8 +1043,11 @@ window.GAME_START = (D) => {
   }
   document.querySelectorAll('input[name="vsmode"]').forEach((r) => r.addEventListener("change", syncVsModeFields));
   syncVsModeFields();
-  attachSuggest($("topic-input"), $("topic-suggest"), (i) => hostSetTopic(i));
-  $("btn-topic-change").addEventListener("click", () => { if (vs.host) { vs.host.answer = -1; renderTopicUI(); hostBroadcast(); } });
+  attachSuggest($("topic-input"), $("topic-suggest"), (i) => pickTopic(i));
+  $("btn-topic-change").addEventListener("click", () => pickTopic(-1));
+  // 出題者の交代（ホストのみ）
+  $("setter-select").addEventListener("change", () => { if (vs.isHost) hostSetSetter(+$("setter-select").value); });
+  $("btn-swap-setter").addEventListener("click", () => { hideResult(); if (vs.isHost && vs.host && hasSetter(vs.host.mode)) hostBackToLobby(true); });
   $("result-modal").addEventListener("click", (e) => { if (e.target === e.currentTarget) hideResult(); });
   window.addEventListener("beforeunload", () => { try { vs.peer && vs.peer.destroy(); } catch {} });
 

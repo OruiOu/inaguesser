@@ -168,8 +168,12 @@
         <div class="field-label">参加者</div>
         <ul class="players" id="lobby-players"></ul>
       </div>
+      <div class="field" id="setter-field" hidden>
+        <div class="field-label">出題者（交代できます）</div>
+        <select id="setter-select" class="text"></select>
+      </div>
       <div class="field topic-field" id="topic-field" hidden>
-        <div class="field-label">お題（相手には見えません）</div>
+        <div class="field-label">あなたのお題（相手には見えません）</div>
         <div class="topic-picker" id="topic-picker">
           <input id="topic-input" class="text" placeholder="お題にする名前を入力" autocomplete="off" autocapitalize="off">
           <ul class="suggest" id="topic-suggest" hidden></ul>
@@ -259,6 +263,7 @@
     <div class="row">
       <button class="btn" id="btn-copy-result" type="button">結果をコピー</button>
       <button class="btn primary" id="btn-again" type="button">もう一度</button>
+      <button class="btn" id="btn-swap-setter" type="button" hidden>出題者を交代して次へ</button>
       <button class="btn" id="btn-result-home" type="button">ホームへ</button>
     </div>
   </div>
