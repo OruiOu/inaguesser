@@ -302,3 +302,31 @@ select.text { appearance: auto; }
 .topic-chosen b { font-size: 16px; flex: 1; }
 .turn-topic { font-size: 12px; color: var(--muted); font-weight: 800; }
 .turn-topic b { color: var(--navy-2); font-size: 14px; }
+
+/* ---------- 質問モード ---------- */
+.qa-area { margin-bottom: 12px; }
+.qa-panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; box-shadow: var(--shadow-s); margin-bottom: 10px; }
+.qa-panel.setter { border-color: var(--navy-2); background: #eef3ff; }
+.qa-pending { font-weight: 800; font-size: 16px; margin: 4px 0 10px; }
+.qa-buttons { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+@media (max-width: 560px) { .qa-buttons { grid-template-columns: repeat(2, 1fr); } .qa-buttons .qa-btn.unknown { grid-column: span 2; } }
+.qa-btn { padding: 10px 6px; font-size: 13px; }
+.qa-btn.yes { background: var(--hit); border-color: var(--hit); color: var(--hit-ink); }
+.qa-btn.pyes { background: #c8ecd0; border-color: #a5dcb1; color: #14532d; }
+.qa-btn.unknown { background: var(--miss); border-color: var(--miss); color: var(--miss-ink); }
+.qa-btn.pno { background: #f8d0d6; border-color: #f0aab5; color: #7a1a2b; }
+.qa-btn.no { background: var(--danger); border-color: var(--danger); color: #fff; }
+.qa-log { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.qa-item { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-s); padding: 8px 12px; display: flex; align-items: center; justify-content: space-between; gap: 10px; box-shadow: var(--shadow-s); }
+.qa-item.guess { border-style: dashed; }
+.qa-q { display: flex; align-items: center; gap: 8px; min-width: 0; flex: 1; flex-wrap: wrap; }
+.qa-no { font-size: 11px; font-weight: 900; color: var(--navy-2); }
+.qa-by { font-size: 12px; color: var(--muted); font-weight: 700; }
+.qa-text { font-weight: 800; flex-basis: 100%; }
+.qa-a { flex: none; font-size: 12px; font-weight: 900; padding: 5px 10px; border-radius: 999px; white-space: nowrap; }
+.qa-a.yes { background: var(--hit); color: var(--hit-ink); }
+.qa-a.pyes { background: #c8ecd0; color: #14532d; }
+.qa-a.unknown { background: var(--miss); color: var(--miss-ink); }
+.qa-a.pno { background: #f8d0d6; color: #7a1a2b; }
+.qa-a.no { background: var(--danger); color: #fff; }
+.qa-a.pending { background: var(--panel-2); color: var(--muted); }

@@ -50,7 +50,7 @@
       <button class="mode-card accent" id="btn-versus" type="button">
         <span class="mode-icon">⚔️</span>
         <span class="mode-title">対戦モード</span>
-        <span class="mode-desc">ルームコードで友達と対戦。ランダムなお題を交互に推理する「ランダムモード」と、自分が決めたお題を当ててもらう「お題モード」</span>
+        <span class="mode-desc">ルームコードで友達と対戦。ランダムなお題を交互に推理する「ランダムモード」と、自分が決めたお題を当ててもらう「お題モード」、質問で絞り込む「質問モード」</span>
       </button>
     </div>
 
@@ -103,6 +103,7 @@
           <div class="seg" role="radiogroup" id="vs-mode-seg">
             <label><input type="radio" name="vsmode" value="random" checked><span>ランダムモード<small>お題はランダム。全員で交互に推理</small></span></label>
             <label><input type="radio" name="vsmode" value="topic"><span>お題モード<small>あなたがお題を決めて、相手が当てる</small></span></label>
+            <label><input type="radio" name="vsmode" value="qa"><span>質問モード<small>あなたがお題を決めて、相手は質問で絞り込む</small></span></label>
           </div>
         </div>
         <div class="field">
@@ -114,7 +115,7 @@
             <option value="0">なし</option>
           </select>
         </div>
-        <div class="field">
+        <div class="field" id="max-turns-field">
           <div class="field-label">最大ターン数（超えると引き分け）</div>
           <select id="max-turns" class="text">
             <option value="10">10</option>
@@ -123,6 +124,28 @@
             <option value="30">30</option>
             <option value="0">無制限</option>
           </select>
+        </div>
+        <div id="qa-opts" hidden>
+          <div class="field">
+            <div class="field-label">質問できる回数（全員合計）</div>
+            <select id="qa-questions" class="text">
+              <option value="10">10回</option>
+              <option value="15">15回</option>
+              <option value="20" selected>20回</option>
+              <option value="25">25回</option>
+              <option value="30">30回</option>
+            </select>
+          </div>
+          <div class="field">
+            <div class="field-label">回答できる回数（全員合計）</div>
+            <select id="qa-guesses" class="text">
+              <option value="1">1回</option>
+              <option value="2">2回</option>
+              <option value="3" selected>3回</option>
+              <option value="4">4回</option>
+              <option value="5">5回</option>
+            </select>
+          </div>
         </div>
         <button class="btn primary" id="btn-create-room" type="button">ルームを作成</button>
       </div>
@@ -184,6 +207,22 @@
 
     <ul class="players inline" id="game-players" hidden></ul>
 
+    <!-- 質問モード -->
+    <div class="qa-area" id="qa-area" hidden>
+      <div class="qa-panel setter" id="qa-answer-panel" hidden>
+        <div class="field-label">質問が届きました</div>
+        <div class="qa-pending" id="qa-pending-q"></div>
+        <div class="qa-buttons" id="qa-answer-buttons"></div>
+      </div>
+      <div class="qa-panel" id="qa-ask-panel" hidden>
+        <div class="field-label">質問する（はい／いいえで答えられる形で）</div>
+        <div class="guess-input-wrap">
+          <input id="qa-input" class="text" maxlength="120" placeholder="例：メーカーはサミーですか？" autocomplete="off">
+          <button class="btn primary" id="qa-ask-btn" type="button">質問</button>
+        </div>
+      </div>
+    </div>
+
     <div class="guess-area" id="guess-area">
       <div class="guess-input-wrap">
         <input id="guess-input" class="text" placeholder="名前を入力" autocomplete="off" autocapitalize="off">
@@ -194,6 +233,8 @@
 
     <div class="board" id="board-body"></div>
     <p class="board-empty" id="board-empty">まだ推理していません。上の入力欄から名前を入れてみよう。</p>
+    <ol class="qa-log" id="qa-log"></ol>
+    <p class="board-empty" id="qa-empty" hidden>まだ質問がありません。</p>
 
     <div class="row game-controls">
       <button class="btn danger" id="btn-surrender" type="button">降参</button>

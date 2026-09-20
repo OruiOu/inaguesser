@@ -92,7 +92,7 @@ window.GAME_START = (D) => {
     const notes = $("rules-notes"); notes.innerHTML = "";
     (CFG.notes || []).forEach((n) => notes.appendChild(el("p", "note", n)));
     const solo = el("p", "note"); solo.appendChild(el("b", null, "ひとりで遊ぶ：")); solo.appendChild(document.createTextNode(`推理できるのは${SOLO_MAX}回まで。${SOLO_MAX}回以内に当てられないと正解が公開されます。`)); notes.appendChild(solo);
-    const vsn = el("p", "note"); vsn.appendChild(el("b", null, "対戦モード：")); vsn.appendChild(document.createTextNode(`ホストがルームを作ってコードを友達に伝えます。【ランダムモード】全員同じ正解${ITEM}を順番に1手ずつ推理し、先に当てた人の勝ち。【お題モード】ホストが選んだ${ITEM}を回答者が順番に推理。当てた人の勝ち、規定ターン以内に誰も当てられなければ出題者の勝ち。各手番には制限時間があります。`)); notes.appendChild(vsn);
+    const vsn = el("p", "note"); vsn.appendChild(el("b", null, "対戦モード：")); vsn.appendChild(document.createTextNode(`ホストがルームを作ってコードを友達に伝えます。【ランダムモード】全員同じ正解${ITEM}を順番に1手ずつ推理し、先に当てた人の勝ち。【お題モード】ホストが選んだ${ITEM}を回答者が順番に推理。当てた人の勝ち、規定ターン以内に誰も当てられなければ出題者の勝ち。【質問モード】ホストが選んだ${ITEM}について、回答者が自由に質問し、出題者は「はい／部分的にはい／わからない／部分的にいいえ／いいえ」で答えます。質問回数と回答（${ITEM}名を答える）回数は開始時に決めた回数まで。当てた人の勝ち、回答回数を使い切ったら出題者の勝ち。各手番には制限時間があります。`)); notes.appendChild(vsn);
     // フッター
     const foot = $("foot"); foot.innerHTML = "";
     foot.appendChild(document.createTextNode(CFG.credit || ""));
@@ -405,7 +405,7 @@ window.GAME_START = (D) => {
     const dl = $("result-attrs"); dl.innerHTML = "";
     ATTRS.forEach((at) => { dl.appendChild(el("dt", null, at.fullLabel || at.label)); dl.appendChild(el("dd", null, displayFull(at, c))); });
     $("btn-copy-result").hidden = !res.share;
-    const topicVs = game.mode === "versus" && vs.pub && vs.pub.mode === "topic";
+    const topicVs = game.mode === "versus" && vs.pub && hasSetter(vs.pub.mode);
     $("btn-again").textContent = game.mode === "versus" ? (vs.isHost ? (topicVs ? "次のお題を選ぶ" : "もう一度（同じメンバー）") : "ホストの再戦を待つ") : "もう一度";
     $("btn-again").disabled = game.mode === "versus" && !vs.isHost;
     $("result-modal").hidden = false;
@@ -467,13 +467,16 @@ window.GAME_START = (D) => {
     peer.on("open", () => {
       settled = true;
       vs.peer = peer; vs.isHost = true; vs.code = code; vs.me = 0;
+      const mode = selectedVsMode();
       vs.host = {
         players: [{ name, conn: null, connected: true, out: false }],
         status: "lobby",
-        mode: (document.querySelector('input[name="vsmode"]:checked') || {}).value === "topic" ? "topic" : "random",
+        mode,
         settings: { difficulty: settings.difficulty, filter: settings.filter.slice() },
-        opts: { turnSec: +$("turn-seconds").value, maxTurns: +$("max-turns").value },
+        opts: { turnSec: +$("turn-seconds").value, maxTurns: mode === "qa" ? 0 : +$("max-turns").value, qMax: +$("qa-questions").value, gMax: +$("qa-guesses").value },
         answer: -1, hint: -1, guesses: [], turn: 0, turnNo: 1, deadline: null, winner: null, reason: null, events: [],
+        // 質問モード
+        qa: [], qLeft: 0, gLeft: 0, phase: "ask",   // qa: [{k:"q",p,q,a} | {k:"g",p,idx,ok}] を時系列で
       };
       peer.on("connection", onHostConnection);
       peer.on("disconnected", () => { lobbyStatus("シグナリングサーバーから切断されました。再接続中…"); try { peer.reconnect(); } catch {} });
@@ -515,6 +518,7 @@ window.GAME_START = (D) => {
     }
     if (pIdx < 0) return;
     if (msg.t === "guess") hostGuess(pIdx, msg.idx | 0);
+    else if (msg.t === "ask") hostAsk(pIdx, msg.q);
     else if (msg.t === "surrender") hostSurrender(pIdx);
   }
   function hostOnLeave(conn) {
@@ -531,30 +535,44 @@ window.GAME_START = (D) => {
     hostBroadcast();
   }
   function hostEvent(text) { const H = vs.host; H.events.push(text); if (H.events.length > 20) H.events.shift(); }
-  const isSetter = (H, i) => H.mode === "topic" && i === 0;
+  // 出題者がいるモード（お題モード・質問モード）ではホスト(0番)が出題者
+  const hasSetter = (mode) => mode === "topic" || mode === "qa";
+  const isSetter = (H, i) => hasSetter(H.mode) && i === 0;
+  const selectedVsMode = () => { const v = (document.querySelector('input[name="vsmode"]:checked') || {}).value; return v === "topic" || v === "qa" ? v : "random"; };
+  // 質問モードの回答の種類
+  const QA_ANSWERS = [
+    { k: "yes", label: "はい" }, { k: "pyes", label: "部分的にはい" }, { k: "unknown", label: "わからない" },
+    { k: "pno", label: "部分的にいいえ" }, { k: "no", label: "いいえ" },
+  ];
+  const qaAnswerLabel = (k) => (QA_ANSWERS.find((a) => a.k === k) || {}).label || "";
   const eligible = (H, i) => { const p = H.players[i]; return !!p && p.connected && !p.out && !isSetter(H, i); };
   function activePlayers() { const H = vs.host; return H.players.filter((p, i) => eligible(H, i)); }
 
   function hostStart() {
     const H = vs.host;
-    if (H.players.filter((p) => p.connected).length < 2) { toast(H.mode === "topic" ? "回答者が1人以上必要です" : "2人以上で開始できます"); return; }
-    if (H.mode === "topic" && !(H.answer >= 0)) { toast("お題を選んでください"); return; }
+    const setter = hasSetter(H.mode);
+    if (H.players.filter((p) => p.connected).length < 2) { toast(setter ? "回答者が1人以上必要です" : "2人以上で開始できます"); return; }
+    if (setter && !(H.answer >= 0)) { toast("お題を選んでください"); return; }
     const pool = poolIndices(H.settings);
-    if (H.mode !== "topic" && !pool.length) { toast("出題候補が0です"); return; }
+    if (!setter && !pool.length) { toast("出題候補が0です"); return; }
     H.players = H.players.filter((p) => p.connected);
     H.players.forEach((p, i) => { p.out = false; if (p.conn) hostSend(p.conn, { t: "welcome", you: i }); });
-    if (H.mode !== "topic") H.answer = pool[randInt(pool.length)];
-    H.hint = pickHint(pool.length ? pool : C.map((_, i) => i), H.answer);
+    if (!setter) H.answer = pool[randInt(pool.length)];
+    // 質問モードはヒント（初期開示）なし
+    H.hint = H.mode === "qa" ? -1 : pickHint(pool.length ? pool : C.map((_, i) => i), H.answer);
     H.guesses = []; H.winner = null; H.reason = null; H.events = [];
+    H.qa = []; H.qLeft = H.opts.qMax || 0; H.gLeft = H.opts.gMax || 0; H.phase = "ask";
     H.status = "playing";
-    H.turn = H.mode === "topic" ? 1 : randInt(H.players.length); H.turnNo = 1;
+    H.turn = setter ? 1 : randInt(H.players.length); H.turnNo = 1;
     H.deadline = H.opts.turnSec ? Date.now() + H.opts.turnSec * 1000 : null;
-    hostEvent(H.mode === "topic" ? `対戦開始！ ${H.players[0].name} が出したお題を当てよう` : `対戦開始！ 正解候補 ${pool.length}${UNIT}`);
+    hostEvent(H.mode === "qa" ? `対戦開始！ ${H.players[0].name} に質問して、お題の${ITEM}を当てよう（質問${H.qLeft}回・回答${H.gLeft}回まで）`
+      : setter ? `対戦開始！ ${H.players[0].name} が出したお題を当てよう` : `対戦開始！ 正解候補 ${pool.length}${UNIT}`);
     hostBroadcast();
   }
   function hostBackToLobby() {
     const H = vs.host; if (!H) return;
     H.status = "lobby"; H.answer = -1; H.hint = -1; H.guesses = []; H.winner = null; H.reason = null; H.events = [];
+    H.qa = []; H.phase = "ask";
     H.players = H.players.filter((p) => p.connected); H.players.forEach((p, i) => { p.out = false; if (p.conn) hostSend(p.conn, { t: "welcome", you: i }); });
     hostBroadcast();
   }
@@ -565,7 +583,7 @@ window.GAME_START = (D) => {
     hostBroadcast();
   }
   function renderTopicUI() {
-    const H = vs.host; const on = !!(H && vs.isHost && H.mode === "topic");
+    const H = vs.host; const on = !!(H && vs.isHost && hasSetter(H.mode));
     $("topic-field").hidden = !on;
     if (!on) return;
     const chosen = H.answer >= 0;
@@ -576,10 +594,53 @@ window.GAME_START = (D) => {
     const H = vs.host;
     if (H.status !== "playing" || H.turn !== pIdx || isSetter(H, pIdx)) return;
     if (!(idx >= 0 && idx < C.length)) return;
-    if (H.guesses.some((g) => g.idx === idx)) { const p = H.players[pIdx]; if (p.conn) hostSend(p.conn, { t: "error", msg: `すでに推理された${ITEM}です` }); else toast(`すでに推理された${ITEM}です`); return; }
+    const errTo = (msg) => { const p = H.players[pIdx]; if (p.conn) hostSend(p.conn, { t: "error", msg }); else toast(msg); };
+    if (H.mode === "qa") {
+      // 質問モードの「回答」：タイル判定なし。回数を消費し、使い切ったら出題者の勝ち
+      if (H.phase !== "ask") return;
+      if (H.gLeft <= 0) { errTo("回答できる回数がもうありません"); return; }
+      if (H.qa.some((g) => g.k === "g" && g.idx === idx)) { errTo(`すでに回答された${ITEM}です`); return; }
+      const ok = idx === H.answer;
+      H.qa.push({ k: "g", p: pIdx, idx, ok });
+      H.gLeft--;
+      if (ok) finish(pIdx, "correct");
+      else {
+        hostEvent(`${H.players[pIdx].name} の回答「${nameOf(C[idx])}」は不正解（回答 残り${H.gLeft}回）`);
+        if (H.gLeft <= 0) finish(null, "no_guesses");
+        else advanceTurn(true);
+      }
+      hostBroadcast();
+      return;
+    }
+    if (H.guesses.some((g) => g.idx === idx)) { errTo(`すでに推理された${ITEM}です`); return; }
     H.guesses.push({ p: pIdx, idx });
     if (idx === H.answer) finish(pIdx, "correct");
     else advanceTurn(true);
+    hostBroadcast();
+  }
+  // 質問モード：回答者の質問
+  function hostAsk(pIdx, q) {
+    const H = vs.host;
+    if (H.mode !== "qa" || H.status !== "playing" || H.phase !== "ask" || H.turn !== pIdx || isSetter(H, pIdx)) return;
+    q = String(q || "").replace(/\s+/g, " ").trim().slice(0, 120);
+    if (!q) return;
+    if (H.qLeft <= 0) { const p = H.players[pIdx]; const msg = "質問できる回数がもうありません"; if (p.conn) hostSend(p.conn, { t: "error", msg }); else toast(msg); return; }
+    H.qa.push({ k: "q", p: pIdx, q, a: null });
+    H.qLeft--;
+    H.phase = "answer";
+    H.deadline = H.opts.turnSec ? Date.now() + H.opts.turnSec * 1000 : null;
+    hostBroadcast();
+  }
+  // 質問モード：出題者の回答（ホスト自身が操作）
+  function hostAnswer(k) {
+    const H = vs.host;
+    if (!H || H.mode !== "qa" || H.status !== "playing" || H.phase !== "answer") return;
+    if (!QA_ANSWERS.some((a) => a.k === k)) return;
+    const last = H.qa[H.qa.length - 1]; if (!last || last.k !== "q" || last.a) return;
+    last.a = k;
+    H.phase = "ask";
+    if (H.qLeft <= 0 && H.gLeft > 0) hostEvent(`質問はもう使い切りました。あとは回答（${ITEM}名）だけです`);
+    advanceTurn(true);
     hostBroadcast();
   }
   function hostSurrender(pIdx) {
@@ -595,7 +656,7 @@ window.GAME_START = (D) => {
     const H = vs.host;
     const act = activePlayers();
     if (act.length === 0) finish(null, "all_out");
-    else if (act.length === 1 && H.mode !== "topic") finish(H.players.indexOf(act[0]), "others_out");
+    else if (act.length === 1 && !hasSetter(H.mode)) finish(H.players.indexOf(act[0]), "others_out");
   }
   function advanceTurn(countTurn) {
     const H = vs.host;
@@ -612,7 +673,9 @@ window.GAME_START = (D) => {
   function hostTick() {
     const H = vs.host;
     if (!H || H.status !== "playing" || !H.deadline) return;
-    if (Date.now() >= H.deadline) { hostEvent(`${H.players[H.turn].name} は時間切れ`); advanceTurn(true); hostBroadcast(); }
+    if (Date.now() < H.deadline) return;
+    if (H.mode === "qa" && H.phase === "answer") { hostEvent(`${H.players[0].name} が時間内に答えなかったので「わからない」扱い`); hostAnswer("unknown"); return; }
+    hostEvent(`${H.players[H.turn].name} は時間切れ`); advanceTurn(true); hostBroadcast();
   }
   function publicState() {
     const H = vs.host;
@@ -625,6 +688,8 @@ window.GAME_START = (D) => {
       winner: H.winner, reason: H.reason, events: H.events,
       answer: H.status === "finished" ? H.answer : -1,
       hint: H.hint, hintR: H.hint >= 0 ? compare(H.hint, H.answer) : null,
+      // 質問モード
+      qa: H.qa, qLeft: H.qLeft, gLeft: H.gLeft, phase: H.phase,
     };
   }
   function hostBroadcast() {
@@ -701,7 +766,7 @@ window.GAME_START = (D) => {
       const li = el("li", (i === vs.me ? "me " : "") + (pub.status === "playing" && pub.turn === i ? "turn " : "") + (!p.connected || p.out ? "offline" : ""));
       const dot = el("span", "pdot"); dot.style.setProperty("--c", PLAYER_COLORS[i % PLAYER_COLORS.length]); li.appendChild(dot);
       li.appendChild(el("span", null, p.name + (i === 0 ? "（ホスト）" : "")));
-      const setter = pub.mode === "topic" && i === 0;
+      const setter = hasSetter(pub.mode) && i === 0;
       const tag = !p.connected ? "切断" : p.out ? "降参" : setter ? (i === vs.me ? "出題者（あなた）" : "出題者") : i === vs.me ? "あなた" : "";
       if (tag) li.appendChild(el("span", "ptag", tag));
       ul.appendChild(li);
@@ -713,7 +778,8 @@ window.GAME_START = (D) => {
   function applyState(pub) {
     vs.pub = pub;
     renderPlayers($("lobby-players"), pub);
-    const topic = pub.mode === "topic";
+    const topic = hasSetter(pub.mode);   // 出題者がいるモード（お題・質問）
+    const qa = pub.mode === "qa";
     if (vs.isHost) $("btn-start-versus").disabled = pub.players.filter((p) => p.connected).length < 2 || (topic && !pub.topicChosen);
     if (pub.status === "lobby") {
       if (game.mode === "versus") { game.mode = null; stopTimer(); hideResult(); showScreen("lobby"); enterRoomView(); }
@@ -728,17 +794,23 @@ window.GAME_START = (D) => {
       game.mode = "versus"; game.over = false;
       hideResult();
       showScreen("game");
-      $("game-mode-label").textContent = topic ? "対戦モード（お題）" : "対戦モード（ランダム）";
+      $("game-mode-label").textContent = qa ? "対戦モード（質問）" : topic ? "対戦モード（お題）" : "対戦モード（ランダム）";
       $("turn-box").hidden = false; $("game-players").hidden = false;
       $("game-log").innerHTML = "";
       clearBoard(); renderedGuessCount = -1;
       if (!timerHandle) timerHandle = setInterval(tick, 250);
       $("guess-input").placeholder = `${ITEM}名を入力`;
+      $("qa-area").hidden = !qa; $("board-body").hidden = qa; $("board-empty").hidden = qa;
+      $("guess-button").textContent = qa ? "回答" : "GUESS";
+      $("qa-input").value = "";
     }
     if (renderedGuessCount > pub.guesses.length) { clearBoard(); renderedGuessCount = -1; } // 再戦
     if (renderedGuessCount < 0) { if (pub.hint >= 0 && pub.hintR) appendRow(renderGuessRow(pub.hint, pub.hintR, null, false)); renderedGuessCount = 0; }
-    $("game-sub").textContent = `${difficultyLabel(pub.settings)}・ターン ${Math.min(pub.turnNo, pub.opts.maxTurns || pub.turnNo)}${pub.opts.maxTurns ? " / " + pub.opts.maxTurns : ""}`;
-    setRemaining(pub.opts.maxTurns ? Math.max(0, pub.opts.maxTurns - pub.turnNo + 1) : null);
+    if (qa) { $("game-sub").textContent = `質問 残り ${pub.qLeft} / ${pub.opts.qMax}・回答 残り ${pub.gLeft} / ${pub.opts.gMax}`; setRemaining(null); }
+    else {
+      $("game-sub").textContent = `${difficultyLabel(pub.settings)}・ターン ${Math.min(pub.turnNo, pub.opts.maxTurns || pub.turnNo)}${pub.opts.maxTurns ? " / " + pub.opts.maxTurns : ""}`;
+      setRemaining(pub.opts.maxTurns ? Math.max(0, pub.opts.maxTurns - pub.turnNo + 1) : null);
+    }
     renderPlayers($("game-players"), pub);
 
     for (let i = renderedGuessCount; i < pub.guesses.length; i++) {
@@ -746,6 +818,7 @@ window.GAME_START = (D) => {
       appendRow(renderGuessRow(g.idx, g.r, { name: pub.players[g.p].name, color: PLAYER_COLORS[g.p % PLAYER_COLORS.length] }, true));
     }
     renderedGuessCount = pub.guesses.length;
+    if (qa) renderQaLog(pub);
 
     const lg = $("game-log"); lg.innerHTML = "";
     pub.events.forEach((e) => lg.prepend(el("div", null, e)));
@@ -758,19 +831,33 @@ window.GAME_START = (D) => {
     if (pub.status === "playing") {
       if (lastStatus === "finished") { hideResult(); log("再戦スタート！"); }
       const mine = pub.turn === vs.me;
+      const answering = qa && pub.phase === "answer";
       const who = $("turn-who");
       who.innerHTML = "";
       if (meSetter) {
-        who.appendChild(document.createTextNode(`${pub.players[pub.turn].name} の番`));
+        who.appendChild(document.createTextNode(answering ? "質問に答えてください" : `${pub.players[pub.turn].name} の番`));
         const tp = el("div", "turn-topic"); tp.append("お題：", el("b", null, vs.host ? nameOf(C[vs.host.answer]) : "")); who.appendChild(tp);
-      } else who.textContent = mine ? "あなたの番！" : `${pub.players[pub.turn].name} の番`;
-      who.className = "turn-who" + (mine ? " me" : "");
-      setInputEnabled(mine && !meOut && !meSetter, meSetter ? "あなたは出題者です" : mine ? `${ITEM}名を入力して推理！` : "相手の番です…");
-      if (mine && lastStatus !== "playing:" + pub.turnNo) $("guess-input").focus();
-      lastStatus = "playing:" + pub.turnNo;
+      } else who.textContent = answering ? `${pub.players[0].name} が回答中…` : mine ? "あなたの番！" : `${pub.players[pub.turn].name} の番`;
+      who.className = "turn-who" + ((mine && !answering) || (meSetter && answering) ? " me" : "");
+      if (qa) {
+        const canAct = mine && !meOut && !meSetter && !answering;
+        $("qa-ask-panel").hidden = !(canAct && pub.qLeft > 0);
+        $("qa-answer-panel").hidden = !(meSetter && answering);
+        if (meSetter && answering) { const last = pub.qa[pub.qa.length - 1]; $("qa-pending-q").textContent = last && last.k === "q" ? `${pub.players[last.p].name}：${last.q}` : ""; }
+        $("qa-ask-btn").disabled = !canAct;
+        $("qa-input").disabled = !canAct;
+        setInputEnabled(canAct && pub.gLeft > 0, meSetter ? "あなたは出題者です" : canAct ? (pub.gLeft > 0 ? `答えが分かったら${ITEM}名を入力（残り${pub.gLeft}回）` : "回答回数を使い切りました") : answering ? "出題者の回答を待っています…" : "相手の番です…");
+        if (canAct && lastStatus !== "playing:" + pub.turnNo + ":" + pub.phase) (pub.qLeft > 0 ? $("qa-input") : $("guess-input")).focus();
+        lastStatus = "playing:" + pub.turnNo + ":" + pub.phase;
+      } else {
+        setInputEnabled(mine && !meOut && !meSetter, meSetter ? "あなたは出題者です" : mine ? `${ITEM}名を入力して推理！` : "相手の番です…");
+        if (mine && lastStatus !== "playing:" + pub.turnNo) $("guess-input").focus();
+        lastStatus = "playing:" + pub.turnNo;
+      }
       tick();
     } else if (pub.status === "finished") {
       setInputEnabled(false, "対戦終了");
+      $("qa-ask-panel").hidden = true; $("qa-answer-panel").hidden = true;
       $("turn-who").textContent = "対戦終了"; $("turn-who").className = "turn-who"; $("turn-timer").textContent = "";
       if (lastStatus !== "finished") {
         const w = pub.winner;
@@ -778,6 +865,7 @@ window.GAME_START = (D) => {
         if (topic) {
           if (pub.reason === "correct") { verdict = meSetter ? `${pub.players[w].name} が正解！` : w === vs.me ? "正解！あなたの勝ち！" : `${pub.players[w].name} が正解`; cls = meSetter ? "lose" : w === vs.me ? "win" : "lose"; }
           else if (pub.reason === "max_turns") { verdict = meSetter ? "誰も当てられず！出題者の勝ち" : "ターン上限。誰も当てられず…"; cls = meSetter ? "win" : "lose"; }
+          else if (pub.reason === "no_guesses") { verdict = meSetter ? "回答回数を使い切った！出題者の勝ち" : "回答回数を使い切って当てられず…"; cls = meSetter ? "win" : "lose"; }
           else { verdict = meSetter ? "全員降参！出題者の勝ち" : "全員降参…"; cls = meSetter ? "win" : "lose"; }
         }
         else if (pub.reason === "max_turns") { verdict = "ターン上限で引き分け"; cls = ""; }
@@ -789,7 +877,32 @@ window.GAME_START = (D) => {
       lastStatus = "finished";
     }
   }
+  // 質問モードの質疑ログ（時系列。最新が上）
+  function renderQaLog(pub) {
+    const ol = $("qa-log"); ol.innerHTML = "";
+    let qn = 0;
+    pub.qa.forEach((x) => {
+      const isQ = x.k === "q"; if (isQ) qn++;
+      const li = el("li", "qa-item" + (isQ ? "" : " guess"));
+      const by = pub.players[x.p] ? pub.players[x.p].name : "?";
+      const head = el("div", "qa-q");
+      const dot = el("span", "pdot"); dot.style.setProperty("--c", PLAYER_COLORS[x.p % PLAYER_COLORS.length]); head.appendChild(dot);
+      head.appendChild(el("span", "qa-no", isQ ? `Q${qn}` : "回答"));
+      head.appendChild(el("span", "qa-by", by));
+      head.appendChild(el("span", "qa-text", isQ ? x.q : nameOf(C[x.idx])));
+      li.appendChild(head);
+      if (isQ) li.appendChild(el("div", "qa-a " + (x.a || "pending"), x.a ? qaAnswerLabel(x.a) : "回答待ち…"));
+      else li.appendChild(el("div", "qa-a " + (x.ok ? "yes" : "no"), x.ok ? "正解！" : "不正解"));
+      ol.prepend(li);
+    });
+    $("qa-empty").hidden = pub.qa.length > 0;
+  }
   function versusShareText(pub, verdict) {
+    if (pub.mode === "qa") {
+      return [`${CFG.title}｜対戦モード（質問）`, verdict, `正解：${nameOf(C[pub.answer])}`,
+        `質問 ${pub.qa.filter((x) => x.k === "q").length} / ${pub.opts.qMax}・回答 ${pub.qa.filter((x) => x.k === "g").length} / ${pub.opts.gMax}`,
+        ...pub.qa.map((x) => (x.k === "q" ? `Q: ${x.q} → ${qaAnswerLabel(x.a) || "-"}` : `A: ${nameOf(C[x.idx])} → ${x.ok ? "正解" : "不正解"}`))].join("\n");
+    }
     return [`${CFG.title}｜対戦モード（${pub.mode === "topic" ? "お題" : "ランダム"}）`, verdict, `正解：${nameOf(C[pub.answer])}`, ...pub.guesses.map((g) => `${pub.players[g.p].name}: ${rowEmoji(g.r)}`)].join("\n");
   }
   function tick() {
@@ -854,8 +967,32 @@ window.GAME_START = (D) => {
   $("btn-again").addEventListener("click", () => {
     hideResult();
     if (game.mode === "solo") startSolo();
-    else if (game.mode === "versus" && vs.isHost) { if (vs.host && vs.host.mode === "topic") hostBackToLobby(); else hostStart(); }
+    else if (game.mode === "versus" && vs.isHost) { if (vs.host && hasSetter(vs.host.mode)) hostBackToLobby(); else hostStart(); }
   });
+  // 質問モード
+  function versusAsk() {
+    const q = $("qa-input").value.trim();
+    if (!q) { toast("質問を入力してください"); return; }
+    const pub = vs.pub; if (!pub || pub.status !== "playing" || pub.turn !== vs.me || pub.phase !== "ask") { toast("あなたの番ではありません"); return; }
+    $("qa-input").value = "";
+    if (vs.isHost) hostAsk(vs.me, q);
+    else if (vs.conn) vs.conn.send({ t: "ask", q });
+  }
+  $("qa-ask-btn").addEventListener("click", versusAsk);
+  $("qa-input").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); versusAsk(); } });
+  QA_ANSWERS.forEach((a) => {
+    const b = el("button", "btn qa-btn " + a.k, a.label); b.type = "button";
+    b.addEventListener("click", () => hostAnswer(a.k));
+    $("qa-answer-buttons").appendChild(b);
+  });
+  // ルーム作成カード：モードに応じて設定項目を出し分け
+  function syncVsModeFields() {
+    const m = selectedVsMode();
+    $("qa-opts").hidden = m !== "qa";
+    $("max-turns-field").hidden = m === "qa";
+  }
+  document.querySelectorAll('input[name="vsmode"]').forEach((r) => r.addEventListener("change", syncVsModeFields));
+  syncVsModeFields();
   attachSuggest($("topic-input"), $("topic-suggest"), (i) => hostSetTopic(i));
   $("btn-topic-change").addEventListener("click", () => { if (vs.host) { vs.host.answer = -1; renderTopicUI(); hostBroadcast(); } });
   $("result-modal").addEventListener("click", (e) => { if (e.target === e.currentTarget) hideResult(); });
