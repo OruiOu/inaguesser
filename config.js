@@ -19,6 +19,9 @@ window.GAME_CONFIG = {
   creditLink: { label: "イナズマイレブン公式選手図鑑 Inagle", url: "https://zukan.inazuma.jp/" },
   creditTail: "を元にしています。©LEVEL-5 Inc.",
 
+  // --- 質問モードの質問例（入力欄のプレースホルダー） ---
+  qaExample: "男性ですか？",
+
   // --- ルール ---
   soloMax: 10,               // ひとりで遊ぶの回数制限
   maxPlayers: 4,             // 対戦の最大人数

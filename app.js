@@ -78,6 +78,7 @@ window.GAME_START = (D) => {
     lead.appendChild(document.createTextNode("が正解とどれだけ近いか表示されます。少しずつ絞り込んで正解を当ててください。"));
     $("mode-solo-desc").textContent = `ランダムな${ITEM}を${SOLO_MAX}回以内に当てられるか`;
     $("guess-input").placeholder = `${ITEM}名を入力（ひらがな・ニックネームもOK）`;
+    if (CFG.qaExample) $("qa-input").placeholder = "例：" + CFG.qaExample;
     // ルール表
     const rb = $("rules-body"); rb.innerHTML = "";
     const chip = (cls, t) => { const s = el("span", "chip " + cls, t); return s; };
