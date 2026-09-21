@@ -880,10 +880,10 @@ window.GAME_START = (D) => {
             matchStatus("相手が見つかりました。ルームを作成中…");
             const name = String(msg.name || "プレイヤー").slice(0, 12);
             tryHostCode(0, vs.name, {
-              mode: "random", autoStart: true,
+              mode: "random", autoStart: false,   // マッチ後はロビーで対戦の種類を選んでから開始する
               onReady: (code) => {
                 try { conn.send({ t: "room", code }); } catch {}
-                hostEvent(`ランダム対戦：${name} とマッチしました`);
+                hostEvent(`ランダム対戦：${name} とマッチしました。対戦の種類を選んで「対戦開始」を押してください`);
                 // 待ち合わせ ID を解放（少し待ってから、相手がコードを受け取れるように）
                 setTimeout(() => { try { conn.close(); } catch {} try { peer.destroy(); } catch {} }, 1500);
                 match.peer = null; match.active = false; clearInterval(match.timer);
