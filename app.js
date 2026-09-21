@@ -787,7 +787,7 @@ window.GAME_START = (D) => {
   // 決まった ID（<ゲームID>-match-N）に接続を試み、誰かが待っていればその人がホストになって通常ルームへ移動。
   // 誰もいなければ自分がその ID で登録して待つ。マッチ後は待ち合わせ ID を解放して次の人が使えるようにする。
   const MATCH_ID = PEER_PREFIX + "match-1";
-  const match = { peer: null, active: false, timer: null, started: 0 };
+  const match = { peer: null, active: false, timer: null, started: 0, fails: 0 };
   function matchStatus(msg) { $("match-status").textContent = msg || ""; }
   function matchReset() {
     match.active = false; clearInterval(match.timer); match.timer = null;
@@ -799,14 +799,14 @@ window.GAME_START = (D) => {
   function matchTick() {
     if (!match.active) return;
     const sec = Math.floor((Date.now() - match.started) / 1000);
-    matchStatus(`相手を探しています… ${Math.floor(sec / 60)}:${pad2(sec % 60)}（このまま待つと、次に押した人と自動でマッチします）`);
+    matchStatus(`相手を探しています… ${Math.floor(sec / 60)}:${pad2(sec % 60)}（画面を消さずにお待ちください。次に押した人と自動でマッチします）`);
   }
   function startMatch() {
     if (!peerAvailable()) { toast("通信ライブラリが読み込めていません"); return; }
     const pool = poolIndices(settings);
     if (!pool.length) { toast("出題候補が0です。ホームの設定を確認してください"); return; }
     myNick();
-    match.active = true; match.started = Date.now();
+    match.active = true; match.started = Date.now(); match.fails = 0;
     $("btn-match").hidden = true; $("btn-match-cancel").hidden = false;
     matchStatus("相手を探しています…");
     clearInterval(match.timer); match.timer = setInterval(matchTick, 1000);
@@ -820,7 +820,15 @@ window.GAME_START = (D) => {
     const giveUp = (msg) => { if (done) return; done = true; try { peer.destroy(); } catch {} if (match.active) { matchReset(); lobbyStatus(msg); } };
     peer.on("open", () => {
       const conn = peer.connect(MATCH_ID, { reliable: true });
-      const t = setTimeout(() => { if (!done) { done = true; try { peer.destroy(); } catch {} if (match.active) matchWait(attempt); } }, 8000);
+      // 相手は登録されているのに接続が開かない（ネットワーク制限など）→ 何度か試してから諦める
+      const t = setTimeout(() => {
+        if (done) return; done = true; try { peer.destroy(); } catch {}
+        if (!match.active) return;
+        match.fails++;
+        if (match.fails >= 3) { matchReset(); lobbyStatus("相手はいるようですが、通信経路を確立できませんでした。Wi-Fi／モバイル回線を切り替えるか、時間をおいて再度お試しください。"); return; }
+        matchStatus(`相手が見つかりましたが接続できません。再試行中…（${match.fails}/3）`);
+        setTimeout(() => matchSeek(attempt + 1), 1500);
+      }, 15000);
       conn.on("open", () => {
         clearTimeout(t); if (done) return;
         matchStatus("相手が見つかりました。ルームに移動中…");
@@ -853,7 +861,17 @@ window.GAME_START = (D) => {
     peer.on("open", () => {
       settled = true;
       matchTick();
-      peer.on("disconnected", () => { try { peer.reconnect(); } catch {} });
+      // スマホの画面オフやタブ切り替えでシグナリングサーバーとの接続が切れると ID が消えて相手から見えなくなるので、復帰したら取り直す
+      peer.on("disconnected", () => {
+        if (!match.active) return;
+        matchStatus("接続が切れました。再登録しています…");
+        try { peer.reconnect(); } catch { try { peer.destroy(); } catch {} setTimeout(() => matchSeek(0), 1000); }
+      });
+      peer.on("close", () => { if (match.active && match.peer === peer) { match.peer = null; setTimeout(() => matchSeek(0), 1000); } });
+      document.addEventListener("visibilitychange", function onVis() {
+        if (!match.active || match.peer !== peer) { document.removeEventListener("visibilitychange", onVis); return; }
+        if (document.visibilityState === "visible" && peer.disconnected && !peer.destroyed) { try { peer.reconnect(); } catch {} }
+      });
       peer.on("connection", (conn) => {
         conn.on("open", () => {
           conn.on("data", (msg) => {
