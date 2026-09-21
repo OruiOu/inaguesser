@@ -267,6 +267,9 @@
       <ul class="suggest" id="suggest" hidden></ul>
     </div>
 
+    <!-- 終了後の正解カード（モーダルを閉じても残る） -->
+    <div class="answer-card" id="answer-card" hidden></div>
+
     <div class="board" id="board-body"></div>
     <p class="board-empty" id="board-empty">まだ推理していません。上の入力欄から名前を入れてみよう。</p>
     <ol class="qa-log" id="qa-log"></ol>
@@ -274,6 +277,9 @@
 
     <div class="row game-controls">
       <button class="btn danger" id="btn-surrender" type="button">降参</button>
+      <button class="btn" id="btn-copy-result-2" type="button" hidden>結果をコピー</button>
+      <button class="btn primary" id="btn-again-2" type="button" hidden>もう一度</button>
+      <button class="btn" id="btn-swap-setter-2" type="button" hidden>出題者を交代して次へ</button>
       <button class="btn" id="btn-back-home" type="button">ホームへ</button>
     </div>
     <div class="log" id="game-log"></div>

@@ -309,6 +309,13 @@ select.text { appearance: auto; }
 .opt { display: flex; flex-direction: column; gap: 4px; }
 .opt > span { font-size: 11px; color: var(--muted); font-weight: 800; }
 
+/* 終了後にゲーム画面へ出す正解カード */
+.answer-card { background: var(--panel); border: 2px solid var(--accent-2); border-radius: var(--radius); padding: 14px 16px 8px; margin-bottom: 12px; box-shadow: var(--shadow-s); animation: cardIn .3s ease; }
+.answer-card .result-verdict { font-size: 20px; margin-bottom: 10px; }
+.answer-card .result-char { margin-bottom: 8px; }
+.answer-card .result-char img { width: 88px; height: 88px; }
+.answer-card .result-name { font-size: 18px; }
+
 /* ---------- 質問モード ---------- */
 .qa-area { margin-bottom: 12px; }
 .qa-panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; box-shadow: var(--shadow-s); margin-bottom: 10px; }

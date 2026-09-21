@@ -362,7 +362,7 @@ window.GAME_START = (D) => {
     $("turn-box").hidden = true; $("game-players").hidden = true;
     $("btn-surrender").hidden = false;
     $("game-log").innerHTML = "";
-    clearBoard();
+    clearBoard(); clearEndUI();
     showHintRow(game.hint, game.answer);
     setInputEnabled(true, `${ITEM}名を入力（ひらがな・ニックネームもOK）`);
     $("guess-input").focus();
@@ -409,10 +409,37 @@ window.GAME_START = (D) => {
     const topicVs = game.mode === "versus" && vs.pub && hasSetter(vs.pub.mode);
     $("btn-again").textContent = game.mode === "versus" ? (vs.isHost ? (topicVs ? "次のお題を選ぶ" : "もう一度（同じメンバー）") : "ホストの再戦を待つ") : "もう一度";
     $("btn-again").disabled = game.mode === "versus" && !vs.isHost;
-    $("btn-swap-setter").hidden = !(topicVs && vs.isHost && vs.pub.players.filter((p) => p.connected).length > 1);
+    const canSwap = topicVs && vs.isHost && vs.pub.players.filter((p) => p.connected).length > 1;
+    $("btn-swap-setter").hidden = !canSwap;
     $("result-modal").hidden = false;
+    // モーダルを閉じても見えるように、ゲーム画面にも正解カードと終了後のボタンを出す
+    const card = $("answer-card"); card.innerHTML = "";
+    card.appendChild(el("div", "result-verdict " + (res.cls || ""), res.verdict));
+    const ch = el("div", "result-char");
+    if (url) { const im = el("img"); im.src = url; im.alt = nameOf(c); im.width = 120; im.height = 120; im.onerror = () => { im.className = "none"; }; ch.appendChild(im); }
+    const info = el("div");
+    info.appendChild(el("div", "result-name", nameOf(c))); info.appendChild(el("div", "result-kana", kanaOf(c)));
+    const dl2 = el("dl", "result-attrs"); ATTRS.forEach((at) => { dl2.appendChild(el("dt", null, at.fullLabel || at.label)); dl2.appendChild(el("dd", null, displayFull(at, c))); });
+    info.appendChild(dl2); ch.appendChild(info); card.appendChild(ch);
+    card.hidden = false;
+    $("btn-surrender").hidden = true;
+    $("btn-copy-result-2").hidden = !res.share;
+    $("btn-again-2").hidden = !(game.mode === "solo" || vs.isHost); $("btn-again-2").textContent = $("btn-again").textContent;
+    $("btn-swap-setter-2").hidden = !canSwap;
   }
   function hideResult() { $("result-modal").hidden = true; }
+  // 新しいゲームが始まるときに、前回の正解カードと終了後ボタンを消す
+  function clearEndUI() {
+    $("answer-card").hidden = true; $("answer-card").innerHTML = "";
+    ["btn-copy-result-2", "btn-again-2", "btn-swap-setter-2"].forEach((id) => ($(id).hidden = true));
+  }
+  function doAgain() {
+    hideResult();
+    if (game.mode === "solo") startSolo();
+    else if (game.mode === "versus" && vs.isHost) { if (vs.host && hasSetter(vs.host.mode)) hostBackToLobby(); else hostStart(); }
+  }
+  function doSwapSetter() { hideResult(); if (vs.isHost && vs.host && hasSetter(vs.host.mode)) hostBackToLobby(true); }
+  function doCopyResult() { if (lastResult && lastResult.share) copyText(lastResult.share); }
 
   // --------------------------------------------------------------- screens
   function showScreen(name) {
@@ -872,14 +899,14 @@ window.GAME_START = (D) => {
       $("game-mode-label").textContent = qa ? "対戦モード（質問）" : topic ? "対戦モード（お題）" : "対戦モード（ランダム）";
       $("turn-box").hidden = false; $("game-players").hidden = false;
       $("game-log").innerHTML = "";
-      clearBoard(); renderedGuessCount = -1;
+      clearBoard(); clearEndUI(); renderedGuessCount = -1;
       if (!timerHandle) timerHandle = setInterval(tick, 250);
       $("guess-input").placeholder = `${ITEM}名を入力`;
       $("qa-area").hidden = !qa; $("board-body").hidden = qa; $("board-empty").hidden = qa;
       $("guess-button").textContent = qa ? "回答" : "GUESS";
       $("qa-input").value = "";
     }
-    if (renderedGuessCount > pub.guesses.length) { clearBoard(); renderedGuessCount = -1; } // 再戦
+    if (renderedGuessCount > pub.guesses.length) { clearBoard(); clearEndUI(); renderedGuessCount = -1; } // 再戦
     if (renderedGuessCount < 0) { if (pub.hint >= 0 && pub.hintR) appendRow(renderGuessRow(pub.hint, pub.hintR, null, false)); renderedGuessCount = 0; }
     if (qa) { $("game-sub").textContent = `質問 残り ${pub.qLeft} / ${pub.opts.qMax}・回答 残り ${pub.gLeft} / ${pub.opts.gMax}`; setRemaining(null); }
     else {
@@ -904,7 +931,7 @@ window.GAME_START = (D) => {
     $("btn-surrender").hidden = pub.status !== "playing" || meOut || meSetter;
 
     if (pub.status === "playing") {
-      if (lastStatus === "finished") { hideResult(); log("再戦スタート！"); }
+      if (lastStatus === "finished") { hideResult(); clearEndUI(); log("再戦スタート！"); }
       const mine = pub.turn === vs.me;
       const answering = qa && pub.phase === "answer";
       const who = $("turn-who");
@@ -1038,13 +1065,12 @@ window.GAME_START = (D) => {
     else if (e.key === "Enter") { e.preventDefault(); submitGuess(); }
     else if (e.key === "Escape") hideSuggest();
   });
-  $("btn-copy-result").addEventListener("click", () => lastResult && lastResult.share && copyText(lastResult.share));
+  $("btn-copy-result").addEventListener("click", doCopyResult);
+  $("btn-copy-result-2").addEventListener("click", doCopyResult);
+  $("btn-again-2").addEventListener("click", doAgain);
+  $("btn-swap-setter-2").addEventListener("click", doSwapSetter);
   $("btn-result-home").addEventListener("click", goHome);
-  $("btn-again").addEventListener("click", () => {
-    hideResult();
-    if (game.mode === "solo") startSolo();
-    else if (game.mode === "versus" && vs.isHost) { if (vs.host && hasSetter(vs.host.mode)) hostBackToLobby(); else hostStart(); }
-  });
+  $("btn-again").addEventListener("click", doAgain);
   // 質問モード
   function versusAsk() {
     const q = $("qa-input").value.trim();
@@ -1076,7 +1102,7 @@ window.GAME_START = (D) => {
   ["room-mode", "room-turn-seconds", "room-max-turns", "room-qa-questions", "room-qa-guesses"].forEach((id) => $(id).addEventListener("change", () => { if (vs.isHost) hostSetRoomOptions(readRoomOptions()); }));
   // 出題者の交代（ホストのみ）
   $("setter-select").addEventListener("change", () => { if (vs.isHost) hostSetSetter(+$("setter-select").value); });
-  $("btn-swap-setter").addEventListener("click", () => { hideResult(); if (vs.isHost && vs.host && hasSetter(vs.host.mode)) hostBackToLobby(true); });
+  $("btn-swap-setter").addEventListener("click", doSwapSetter);
   $("result-modal").addEventListener("click", (e) => { if (e.target === e.currentTarget) hideResult(); });
   window.addEventListener("beforeunload", () => { try { vs.peer && vs.peer.destroy(); } catch {} });
 
