@@ -596,6 +596,24 @@ window.GAME_START = (D) => {
     H.setter = si;
     hostBroadcast();
   }
+  // ロビーで対戦の種類や設定を変える（ホストのみ）
+  const MODE_LABEL = { random: "ランダムモード", topic: "お題モード", qa: "質問モード" };
+  function hostSetRoomOptions(o) {
+    const H = vs.host; if (!H || H.status !== "lobby") return;
+    const mode = o.mode === "topic" || o.mode === "qa" ? o.mode : "random";
+    if (mode !== H.mode) { H.mode = mode; H.answer = -1; hostEvent(`対戦の種類を「${MODE_LABEL[mode]}」に変更`); }
+    H.opts = { turnSec: +o.turnSec || 0, maxTurns: mode === "qa" ? 0 : (+o.maxTurns || 0), qMax: +o.qMax || 20, gMax: +o.gMax || 3 };
+    hostBroadcast();
+  }
+  // ロビーで対戦の種類や設定を変える（ホストのみ）
+  const MODE_LABEL = { random: "ランダムモード", topic: "お題モード", qa: "質問モード" };
+  function hostSetRoomOptions(o) {
+    const H = vs.host; if (!H || H.status !== "lobby") return;
+    const mode = o.mode === "topic" || o.mode === "qa" ? o.mode : "random";
+    if (mode !== H.mode) { H.mode = mode; H.answer = -1; hostEvent(`対戦の種類を「${MODE_LABEL[mode]}」に変更`); }
+    H.opts = { turnSec: +o.turnSec || 0, maxTurns: mode === "qa" ? 0 : (+o.maxTurns || 0), qMax: +o.qMax || 20, gMax: +o.gMax || 3 };
+    hostBroadcast();
+  }
   function hostSetSetter(i) {
     const H = vs.host; if (!H || H.status !== "lobby" || !hasSetter(H.mode)) return;
     if (!(i >= 0 && i < H.players.length)) return;
@@ -819,6 +837,38 @@ window.GAME_START = (D) => {
     pub.players.forEach((p, i) => { const o = el("option", null, p.name + (i === 0 ? "（ホスト）" : "")); o.value = String(i); sel.appendChild(o); });
     sel.value = String(pub.setter);
   }
+  function renderRoomOptions(pub) {
+    const on = pub.status === "lobby";
+    $("room-options").hidden = !on;
+    if (!on) return;
+    $("room-options-host").hidden = !vs.isHost;
+    const summary = [MODE_LABEL[pub.mode] || pub.mode,
+      pub.opts.turnSec ? `1手 ${pub.opts.turnSec}秒` : "制限時間なし",
+      pub.mode === "qa" ? `質問 ${pub.opts.qMax}回・回答 ${pub.opts.gMax}回` : (pub.opts.maxTurns ? `最大 ${pub.opts.maxTurns}ターン` : "ターン無制限")].join("・");
+    $("room-options-summary").textContent = summary;
+    if (!vs.isHost) return;
+    // ホストの操作中に上書きしないよう、値が違うときだけ反映
+    const set = (id, v) => { const e = $(id); if (e.value !== String(v)) e.value = String(v); };
+    set("room-mode", pub.mode); set("room-turn-seconds", pub.opts.turnSec); set("room-max-turns", pub.opts.maxTurns);
+    set("room-qa-questions", pub.opts.qMax); set("room-qa-guesses", pub.opts.gMax);
+    $("room-qa-opts").hidden = pub.mode !== "qa"; $("room-max-turns-field").hidden = pub.mode === "qa";
+  }
+  function renderRoomOptions(pub) {
+    const on = pub.status === "lobby";
+    $("room-options").hidden = !on;
+    if (!on) return;
+    $("room-options-host").hidden = !vs.isHost;
+    const summary = [MODE_LABEL[pub.mode] || pub.mode,
+      pub.opts.turnSec ? `1手 ${pub.opts.turnSec}秒` : "制限時間なし",
+      pub.mode === "qa" ? `質問 ${pub.opts.qMax}回・回答 ${pub.opts.gMax}回` : (pub.opts.maxTurns ? `最大 ${pub.opts.maxTurns}ターン` : "ターン無制限")].join("・");
+    $("room-options-summary").textContent = summary;
+    if (!vs.isHost) return;
+    // ホストの操作中に上書きしないよう、値が違うときだけ反映
+    const set = (id, v) => { const e = $(id); if (e.value !== String(v)) e.value = String(v); };
+    set("room-mode", pub.mode); set("room-turn-seconds", pub.opts.turnSec); set("room-max-turns", pub.opts.maxTurns);
+    set("room-qa-questions", pub.opts.qMax); set("room-qa-guesses", pub.opts.gMax);
+    $("room-qa-opts").hidden = pub.mode !== "qa"; $("room-max-turns-field").hidden = pub.mode === "qa";
+  }
   let renderedGuessCount = 0;
   let lastStatus = null;
   function applyState(pub) {
@@ -832,6 +882,8 @@ window.GAME_START = (D) => {
       if (!pub.topicChosen) vs.myTopic = -1;
       renderTopicUI();
       renderSetterUI(pub);
+      renderRoomOptions(pub);
+      renderRoomOptions(pub);
       const meSet = topic && vs.me === pub.setter;
       $("lobby-hint").textContent = vs.isHost
         ? (topic ? (meSet ? "お題を選んで、回答者がそろったら「対戦開始」。" : (pub.topicChosen ? `${setterName(pub)} がお題を決めました。「対戦開始」で始められます。` : `${setterName(pub)} がお題を選んでいます…`)) : "友達にコードを伝えて、全員そろったら「対戦開始」。")
@@ -1045,6 +1097,12 @@ window.GAME_START = (D) => {
   syncVsModeFields();
   attachSuggest($("topic-input"), $("topic-suggest"), (i) => pickTopic(i));
   $("btn-topic-change").addEventListener("click", () => pickTopic(-1));
+  // ロビーでの対戦の種類・設定の変更（ホストのみ）
+  const readRoomOptions = () => ({ mode: $("room-mode").value, turnSec: $("room-turn-seconds").value, maxTurns: $("room-max-turns").value, qMax: $("room-qa-questions").value, gMax: $("room-qa-guesses").value });
+  ["room-mode", "room-turn-seconds", "room-max-turns", "room-qa-questions", "room-qa-guesses"].forEach((id) => $(id).addEventListener("change", () => { if (vs.isHost) hostSetRoomOptions(readRoomOptions()); }));
+  // ロビーでの対戦の種類・設定の変更（ホストのみ）
+  const readRoomOptions = () => ({ mode: $("room-mode").value, turnSec: $("room-turn-seconds").value, maxTurns: $("room-max-turns").value, qMax: $("room-qa-questions").value, gMax: $("room-qa-guesses").value });
+  ["room-mode", "room-turn-seconds", "room-max-turns", "room-qa-questions", "room-qa-guesses"].forEach((id) => $(id).addEventListener("change", () => { if (vs.isHost) hostSetRoomOptions(readRoomOptions()); }));
   // 出題者の交代（ホストのみ）
   $("setter-select").addEventListener("change", () => { if (vs.isHost) hostSetSetter(+$("setter-select").value); });
   $("btn-swap-setter").addEventListener("click", () => { hideResult(); if (vs.isHost && vs.host && hasSetter(vs.host.mode)) hostBackToLobby(true); });
