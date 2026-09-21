@@ -23,6 +23,7 @@ window.GAME_CONFIG = {
   qaExample: "男性ですか？",
 
   // --- ルール ---
+  randomMatch: true,         // ロビーに「ランダム対戦」（コード不要の自動マッチ）を出す
   soloMax: 10,               // ひとりで遊ぶの回数制限
   maxPlayers: 4,             // 対戦の最大人数
 

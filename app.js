@@ -473,6 +473,8 @@ window.GAME_START = (D) => {
     showScreen("lobby");
     $("nickname").value = vs.name;
     $("lobby-choice").hidden = false; $("lobby-room").hidden = true;
+    $("lobby-match").hidden = !CFG.randomMatch;
+    matchReset();
     $("join-code").value = prefillCode || "";
     lobbyStatus(peerAvailable() ? "" : "通信ライブラリを読み込めませんでした。ネットワーク環境を確認するか、公開版のURLから開いてください。");
   }
@@ -489,15 +491,17 @@ window.GAME_START = (D) => {
     $("btn-create-room").disabled = true;
     tryHostCode(0, name);
   }
-  function tryHostCode(attempt, name) {
+  function tryHostCode(attempt, name, ov) {
+    ov = ov || {};
     const code = String(100000 + randInt(900000));
     const peer = makePeer(PEER_PREFIX + code);
     let settled = false;
     peer.on("open", () => {
       settled = true;
       vs.peer = peer; vs.isHost = true; vs.code = code; vs.me = 0;
-      const mode = selectedVsMode();
+      const mode = ov.mode || selectedVsMode();
       vs.host = {
+        autoStart: !!ov.autoStart,   // ランダム対戦：2人そろったら自動で開始
         players: [{ name, conn: null, connected: true, out: false }],
         status: "lobby",
         mode,
@@ -514,12 +518,14 @@ window.GAME_START = (D) => {
       $("btn-create-room").disabled = false;
       enterRoomView();
       hostBroadcast();
+      if (ov.onReady) ov.onReady(code);
     });
     peer.on("error", (e) => {
       if (settled) return;
       settled = true;
       try { peer.destroy(); } catch {}
-      if (e.type === "unavailable-id" && attempt < 5) { tryHostCode(attempt + 1, name); return; }
+      if (e.type === "unavailable-id" && attempt < 5) { tryHostCode(attempt + 1, name, ov); return; }
+      if (ov.onFail) { ov.onFail(e); return; }
       $("btn-create-room").disabled = false;
       lobbyStatus("ルームを作成できませんでした（" + e.type + "）。時間をおいて再度お試しください。");
     });
@@ -543,6 +549,11 @@ window.GAME_START = (D) => {
       H.players.push({ name, conn, connected: true, out: false });
       hostSend(conn, { t: "welcome", you: H.players.length - 1 });
       hostEvent(`${name} が参加しました`);
+      if (H.autoStart && H.players.filter((p) => p.connected).length >= 2) {
+        H.autoStart = false;
+        hostEvent("対戦相手が見つかりました。まもなく開始します");
+        setTimeout(() => { if (vs.host === H && H.status === "lobby") hostStart(); }, 2500);
+      }
       hostBroadcast();
       return;
     }
@@ -772,6 +783,110 @@ window.GAME_START = (D) => {
     applyState(pub);
   }
 
+  // ---- ランダム対戦（サーバーなしの待ち合わせ）
+  // 決まった ID（<ゲームID>-match-N）に接続を試み、誰かが待っていればその人がホストになって通常ルームへ移動。
+  // 誰もいなければ自分がその ID で登録して待つ。マッチ後は待ち合わせ ID を解放して次の人が使えるようにする。
+  const MATCH_ID = PEER_PREFIX + "match-1";
+  const match = { peer: null, active: false, timer: null, started: 0 };
+  function matchStatus(msg) { $("match-status").textContent = msg || ""; }
+  function matchReset() {
+    match.active = false; clearInterval(match.timer); match.timer = null;
+    try { match.peer && match.peer.destroy(); } catch {}
+    match.peer = null;
+    $("btn-match").hidden = false; $("btn-match-cancel").hidden = true; $("btn-match").disabled = false;
+    matchStatus("");
+  }
+  function matchTick() {
+    if (!match.active) return;
+    const sec = Math.floor((Date.now() - match.started) / 1000);
+    matchStatus(`相手を探しています… ${Math.floor(sec / 60)}:${pad2(sec % 60)}（このまま待つと、次に押した人と自動でマッチします）`);
+  }
+  function startMatch() {
+    if (!peerAvailable()) { toast("通信ライブラリが読み込めていません"); return; }
+    const pool = poolIndices(settings);
+    if (!pool.length) { toast("出題候補が0です。ホームの設定を確認してください"); return; }
+    myNick();
+    match.active = true; match.started = Date.now();
+    $("btn-match").hidden = true; $("btn-match-cancel").hidden = false;
+    matchStatus("相手を探しています…");
+    clearInterval(match.timer); match.timer = setInterval(matchTick, 1000);
+    matchSeek(0);
+  }
+  // 1) 待っている人がいるか、待ち合わせ ID に接続してみる
+  function matchSeek(attempt) {
+    if (!match.active) return;
+    const peer = makePeer(undefined); match.peer = peer;
+    let done = false;
+    const giveUp = (msg) => { if (done) return; done = true; try { peer.destroy(); } catch {} if (match.active) { matchReset(); lobbyStatus(msg); } };
+    peer.on("open", () => {
+      const conn = peer.connect(MATCH_ID, { reliable: true });
+      const t = setTimeout(() => { if (!done) { done = true; try { peer.destroy(); } catch {} if (match.active) matchWait(attempt); } }, 8000);
+      conn.on("open", () => {
+        clearTimeout(t); if (done) return;
+        matchStatus("相手が見つかりました。ルームに移動中…");
+        conn.send({ t: "hello", name: vs.name });
+        conn.on("data", (msg) => {
+          if (!msg || msg.t !== "room" || done) return;
+          done = true;
+          const code = String(msg.code || "");
+          try { conn.close(); } catch {}
+          setTimeout(() => { try { peer.destroy(); } catch {} }, 500);
+          match.peer = null; match.active = false; clearInterval(match.timer);
+          $("join-code").value = code;
+          joinRoom();
+          matchReset();
+        });
+        conn.on("close", () => { if (!done) { done = true; try { peer.destroy(); } catch {} if (match.active) matchSeek(attempt + 1); } });
+      });
+    });
+    peer.on("error", (e) => {
+      if (done) return;
+      if (e.type === "peer-unavailable") { done = true; try { peer.destroy(); } catch {} matchWait(attempt); }   // 誰も待っていない → 自分が待つ
+      else giveUp("接続エラー: " + e.type);
+    });
+  }
+  // 2) 自分が待ち合わせ ID を取って待つ。取れなければ（同時に誰かが取った）もう一度探す
+  function matchWait(attempt) {
+    if (!match.active) return;
+    const peer = makePeer(MATCH_ID); match.peer = peer;
+    let settled = false;
+    peer.on("open", () => {
+      settled = true;
+      matchTick();
+      peer.on("disconnected", () => { try { peer.reconnect(); } catch {} });
+      peer.on("connection", (conn) => {
+        conn.on("open", () => {
+          conn.on("data", (msg) => {
+            if (!msg || msg.t !== "hello" || !match.active) return;
+            if (vs.host) return;   // すでにルーム作成中
+            matchStatus("相手が見つかりました。ルームを作成中…");
+            const name = String(msg.name || "プレイヤー").slice(0, 12);
+            tryHostCode(0, vs.name, {
+              mode: "random", autoStart: true,
+              onReady: (code) => {
+                try { conn.send({ t: "room", code }); } catch {}
+                hostEvent(`ランダム対戦：${name} とマッチしました`);
+                // 待ち合わせ ID を解放（少し待ってから、相手がコードを受け取れるように）
+                setTimeout(() => { try { conn.close(); } catch {} try { peer.destroy(); } catch {} }, 1500);
+                match.peer = null; match.active = false; clearInterval(match.timer);
+                $("btn-match").hidden = false; $("btn-match-cancel").hidden = true; matchStatus("");
+              },
+              onFail: () => { matchReset(); lobbyStatus("ルームを作成できませんでした。もう一度お試しください。"); },
+            });
+          });
+        });
+      });
+    });
+    peer.on("error", (e) => {
+      if (settled) { console.warn(e); return; }
+      settled = true;
+      try { peer.destroy(); } catch {}
+      if (!match.active) return;
+      if (e.type === "unavailable-id" && attempt < 6) setTimeout(() => matchSeek(attempt + 1), 800 + randInt(700));   // 取り合いに負けた → 相手に接続し直す
+      else { matchReset(); lobbyStatus("相手を探せませんでした（" + e.type + "）。時間をおいて再度お試しください。"); }
+    });
+  }
+
   // ---- guest
   function joinRoom() {
     if (!peerAvailable()) { toast("通信ライブラリが読み込めていません"); return; }
@@ -818,7 +933,7 @@ window.GAME_START = (D) => {
 
   // ---- shared
   function enterRoomView() {
-    $("lobby-choice").hidden = true; $("lobby-room").hidden = false;
+    $("lobby-choice").hidden = true; $("lobby-room").hidden = false; $("lobby-match").hidden = true;
     $("room-code-display").textContent = vs.code;
     $("btn-start-versus").hidden = !vs.isHost;
     lobbyStatus("");
@@ -828,6 +943,7 @@ window.GAME_START = (D) => {
   }
   function leaveVersus() {
     stopTimer();
+    if (match.active) matchReset();
     try { vs.conn && vs.conn.close(); } catch {}
     try { vs.peer && vs.peer.destroy(); } catch {}
     vs.peer = null; vs.conn = null; vs.host = null; vs.pub = null; vs.isHost = false; vs.code = null; vs.me = -1;
@@ -1033,6 +1149,8 @@ window.GAME_START = (D) => {
   $("btn-solo").addEventListener("click", startSolo);
   $("btn-versus").addEventListener("click", () => openLobby());
   $("btn-create-room").addEventListener("click", createRoom);
+  $("btn-match").addEventListener("click", startMatch);
+  $("btn-match-cancel").addEventListener("click", () => { matchReset(); lobbyStatus("ランダム対戦をキャンセルしました。"); });
   $("btn-join-room").addEventListener("click", joinRoom);
   $("join-code").addEventListener("keydown", (e) => { if (e.key === "Enter") joinRoom(); });
   $("btn-copy-code").addEventListener("click", () => copyText(vs.code || ""));

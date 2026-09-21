@@ -316,6 +316,10 @@ select.text { appearance: auto; }
 .answer-card .result-char img { width: 88px; height: 88px; }
 .answer-card .result-name { font-size: 18px; }
 
+/* ランダム対戦 */
+.match-card { margin-top: 12px; }
+.match-card .row { margin-top: 8px; }
+
 /* ---------- 質問モード ---------- */
 .qa-area { margin-bottom: 12px; }
 .qa-panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; box-shadow: var(--shadow-s); margin-bottom: 10px; }
