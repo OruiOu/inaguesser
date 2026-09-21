@@ -407,9 +407,10 @@ window.GAME_START = (D) => {
     ATTRS.forEach((at) => { dl.appendChild(el("dt", null, at.fullLabel || at.label)); dl.appendChild(el("dd", null, displayFull(at, c))); });
     $("btn-copy-result").hidden = !res.share;
     const topicVs = game.mode === "versus" && vs.pub && hasSetter(vs.pub.mode);
-    $("btn-again").textContent = game.mode === "versus" ? (vs.isHost ? (topicVs ? "次のお題を選ぶ" : "もう一度（同じメンバー）") : "ホストの再戦を待つ") : "もう一度";
+    const autoRot = topicVs && vs.isHost && vs.host && vs.host.autoRotate;
+    $("btn-again").textContent = game.mode === "versus" ? (vs.isHost ? (topicVs ? (autoRot ? "次へ（出題者を交代）" : "次のお題を選ぶ") : "もう一度（同じメンバー）") : "ホストの再戦を待つ") : "もう一度";
     $("btn-again").disabled = game.mode === "versus" && !vs.isHost;
-    const canSwap = topicVs && vs.isHost && vs.pub.players.filter((p) => p.connected).length > 1;
+    const canSwap = topicVs && vs.isHost && !autoRot && vs.pub.players.filter((p) => p.connected).length > 1;
     $("btn-swap-setter").hidden = !canSwap;
     $("result-modal").hidden = false;
     // モーダルを閉じても見えるように、ゲーム画面にも正解カードと終了後のボタンを出す
@@ -502,6 +503,7 @@ window.GAME_START = (D) => {
       const mode = ov.mode || selectedVsMode();
       vs.host = {
         autoStart: !!ov.autoStart,   // ランダム対戦：2人そろったら自動で開始
+        autoRotate: !!ov.autoRotate, // ランダム対戦（お題・質問）：試合ごとに出題者を交互に
         players: [{ name, conn: null, connected: true, out: false }],
         status: "lobby",
         mode,
@@ -515,6 +517,7 @@ window.GAME_START = (D) => {
       peer.on("connection", onHostConnection);
       peer.on("disconnected", () => { lobbyStatus("シグナリングサーバーから切断されました。再接続中…"); try { peer.reconnect(); } catch {} });
       peer.on("error", (e) => { console.warn(e); if (e.type !== "peer-unavailable") toast("通信エラー: " + e.type); });
+      if (ov.onOpen) ov.onOpen(vs.host);
       $("btn-create-room").disabled = false;
       enterRoomView();
       hostBroadcast();
@@ -588,7 +591,7 @@ window.GAME_START = (D) => {
   // 出題者がいるモード（お題モード・質問モード）。出題者は H.setter（初期はホスト。ロビーで交代できる）
   const hasSetter = (mode) => mode === "topic" || mode === "qa";
   const isSetter = (H, i) => hasSetter(H.mode) && i === H.setter;
-  const setterName = (pub) => (pub.players[pub.setter] ? pub.players[pub.setter].name : "出題者");
+  const setterName = (pub) => (pub.players[pub.setter] ? pub.players[pub.setter].name : "対戦相手");
   const selectedVsMode = () => { const v = (document.querySelector('input[name="vsmode"]:checked') || {}).value; return v === "topic" || v === "qa" ? v : "random"; };
   // 質問モードの回答の種類
   const QA_ANSWERS = [
@@ -630,7 +633,7 @@ window.GAME_START = (D) => {
     H.qa = []; H.phase = "ask";
     H.players = H.players.filter((p) => p.connected); H.players.forEach((p, i) => { p.out = false; if (p.conn) hostSend(p.conn, { t: "welcome", you: i }); });
     let si = Math.max(0, H.players.indexOf(curSetter));
-    if (rotateSetter && H.players.length > 1) si = (si + 1) % H.players.length;   // 次の人に交代
+    if ((rotateSetter || H.autoRotate) && H.players.length > 1) si = (si + 1) % H.players.length;   // 次の人に交代
     H.setter = si;
     hostBroadcast();
   }
@@ -786,7 +789,9 @@ window.GAME_START = (D) => {
   // ---- ランダム対戦（サーバーなしの待ち合わせ）
   // 決まった ID（<ゲームID>-match-N）に接続を試み、誰かが待っていればその人がホストになって通常ルームへ移動。
   // 誰もいなければ自分がその ID で登録して待つ。マッチ後は待ち合わせ ID を解放して次の人が使えるようにする。
-  const MATCH_ID = PEER_PREFIX + "match-1";
+  // 対戦の種類ごとに別の待ち合わせ ID（ランダム／お題／質問で別々にマッチする）
+  const matchMode = () => { const v = (document.querySelector('input[name="matchmode"]:checked') || {}).value; return v === "topic" || v === "qa" ? v : "random"; };
+  const matchId = () => PEER_PREFIX + "match-" + matchMode();
   const match = { peer: null, active: false, timer: null, started: 0, fails: 0 };
   function matchStatus(msg) { $("match-status").textContent = msg || ""; }
   function matchReset() {
@@ -794,6 +799,7 @@ window.GAME_START = (D) => {
     try { match.peer && match.peer.destroy(); } catch {}
     match.peer = null;
     $("btn-match").hidden = false; $("btn-match-cancel").hidden = true; $("btn-match").disabled = false;
+    document.querySelectorAll('input[name="matchmode"]').forEach((r) => (r.disabled = false));
     matchStatus("");
   }
   function matchTick() {
@@ -809,6 +815,7 @@ window.GAME_START = (D) => {
     match.active = true; match.started = Date.now(); match.fails = 0;
     $("btn-match").hidden = true; $("btn-match-cancel").hidden = false;
     matchStatus("相手を探しています…");
+    document.querySelectorAll('input[name="matchmode"]').forEach((r) => (r.disabled = true));
     clearInterval(match.timer); match.timer = setInterval(matchTick, 1000);
     matchSeek(0);
   }
@@ -819,7 +826,7 @@ window.GAME_START = (D) => {
     let done = false;
     const giveUp = (msg) => { if (done) return; done = true; try { peer.destroy(); } catch {} if (match.active) { matchReset(); lobbyStatus(msg); } };
     peer.on("open", () => {
-      const conn = peer.connect(MATCH_ID, { reliable: true });
+      const conn = peer.connect(matchId(), { reliable: true });
       // 相手は登録されているのに接続が開かない（ネットワーク制限など）→ 何度か試してから諦める
       const t = setTimeout(() => {
         if (done) return; done = true; try { peer.destroy(); } catch {}
@@ -856,7 +863,7 @@ window.GAME_START = (D) => {
   // 2) 自分が待ち合わせ ID を取って待つ。取れなければ（同時に誰かが取った）もう一度探す
   function matchWait(attempt) {
     if (!match.active) return;
-    const peer = makePeer(MATCH_ID); match.peer = peer;
+    const peer = makePeer(matchId()); match.peer = peer;
     let settled = false;
     peer.on("open", () => {
       settled = true;
@@ -880,7 +887,9 @@ window.GAME_START = (D) => {
             matchStatus("相手が見つかりました。ルームを作成中…");
             const name = String(msg.name || "プレイヤー").slice(0, 12);
             tryHostCode(0, vs.name, {
-              mode: "random", autoStart: false,   // マッチ後はロビーで対戦の種類を選んでから開始する
+              mode: matchMode(), autoStart: false,
+              autoRotate: true,   // お題・質問モード：出題者は最初ランダム、以降は交互
+              onOpen: (H) => { if (hasSetter(H.mode)) H.setter = randInt(2); },
               onReady: (code) => {
                 try { conn.send({ t: "room", code }); } catch {}
                 hostEvent(`ランダム対戦：${name} とマッチしました。対戦の種類を選んで「対戦開始」を押してください`);

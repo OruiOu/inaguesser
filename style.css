@@ -317,6 +317,8 @@ select.text { appearance: auto; }
 .answer-card .result-name { font-size: 18px; }
 
 /* ランダム対戦 */
+.seg.seg3 { grid-template-columns: repeat(3, 1fr); }
+@media (max-width: 560px) { .seg.seg3 { grid-template-columns: 1fr; } }
 .match-card { margin-top: 12px; }
 .match-card .row { margin-top: 8px; }
 

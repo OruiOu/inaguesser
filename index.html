@@ -160,7 +160,15 @@
 
     <div class="card match-card" id="lobby-match" hidden>
       <h3>ランダム対戦</h3>
-      <p class="muted">コード不要。今このゲームで相手を探している人と自動でマッチしてルームに入ります。対戦の種類はルームで選べます。</p>
+      <p class="muted">コード不要。同じ種類で相手を探している人と自動でマッチしてルームに入ります。お題・質問モードの出題者は最初はランダム、続けて遊ぶと交互になります。</p>
+      <div class="field">
+        <div class="field-label">対戦の種類</div>
+        <div class="seg seg3" role="radiogroup">
+          <label><input type="radio" name="matchmode" value="random" checked><span>ランダムモード</span></label>
+          <label><input type="radio" name="matchmode" value="topic"><span>お題モード</span></label>
+          <label><input type="radio" name="matchmode" value="qa"><span>質問モード</span></label>
+        </div>
+      </div>
       <div class="row">
         <button class="btn primary" id="btn-match" type="button">相手を探す</button>
         <button class="btn" id="btn-match-cancel" type="button" hidden>やめる</button>
