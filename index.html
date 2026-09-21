@@ -168,6 +168,38 @@
         <div class="field-label">参加者</div>
         <ul class="players" id="lobby-players"></ul>
       </div>
+      <div class="field" id="room-options" hidden>
+        <div class="field-label">対戦の種類・設定</div>
+        <p class="muted" id="room-options-summary"></p>
+        <div id="room-options-host" hidden>
+          <div class="opt-grid">
+            <label class="opt"><span>対戦の種類</span>
+              <select id="room-mode" class="text">
+                <option value="random">ランダムモード</option>
+                <option value="topic">お題モード</option>
+                <option value="qa">質問モード</option>
+              </select></label>
+            <label class="opt"><span>1手の制限時間</span>
+              <select id="room-turn-seconds" class="text">
+                <option value="30">30秒</option><option value="60">60秒</option><option value="90">90秒</option><option value="0">なし</option>
+              </select></label>
+            <label class="opt" id="room-max-turns-field"><span>最大ターン数</span>
+              <select id="room-max-turns" class="text">
+                <option value="10">10</option><option value="12">12</option><option value="20">20</option><option value="30">30</option><option value="0">無制限</option>
+              </select></label>
+          </div>
+          <div class="opt-grid" id="room-qa-opts" hidden>
+            <label class="opt"><span>質問できる回数</span>
+              <select id="room-qa-questions" class="text">
+                <option value="10">10回</option><option value="15">15回</option><option value="20">20回</option><option value="25">25回</option><option value="30">30回</option>
+              </select></label>
+            <label class="opt"><span>回答できる回数</span>
+              <select id="room-qa-guesses" class="text">
+                <option value="1">1回</option><option value="2">2回</option><option value="3">3回</option><option value="4">4回</option><option value="5">5回</option>
+              </select></label>
+          </div>
+        </div>
+      </div>
       <div class="field" id="setter-field" hidden>
         <div class="field-label">出題者（交代できます）</div>
         <select id="setter-select" class="text"></select>
